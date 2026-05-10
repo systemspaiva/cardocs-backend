@@ -1,0 +1,34 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: cardocs-postgres
+    environment:
+      POSTGRES_DB: cardocs
+      POSTGRES_USER: cardocs
+      POSTGRES_PASSWORD: cardocs
+    ports:
+      - "5432:5432"
+    volumes:
+      - cardocs-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cardocs -d cardocs"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  localstack:
+    image: localstack/localstack:3
+    container_name: cardocs-localstack
+    environment:
+      SERVICES: s3,sqs
+      AWS_DEFAULT_REGION: sa-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+    ports:
+      - "4566:4566"
+    volumes:
+      - cardocs-localstack:/var/lib/localstack
+
+volumes:
+  cardocs-postgres:
+  cardocs-localstack:
