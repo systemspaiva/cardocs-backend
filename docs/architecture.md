@@ -44,3 +44,10 @@ External services are selected through environment-backed properties:
 - `NOTIFICATION_PROVIDER=mock`
 
 Real integrations must be added as new provider implementations and activated by configuration after contract, credentials, and legal requirements are ready.
+
+## Feature Flags
+
+- `FEATURE_VEHICLE_REGISTRY_INTEGRATION` gates `POST /vehicles/lookup-by-plate`.
+- `FEATURE_OCR_INTEGRATION` gates OCR queueing.
+- `FEATURE_PUBLIC_SHARE_LINK` gates public dossier creation and public reads.
+- `FEATURE_NOTIFICATIONS` is reserved for real notification delivery; the mock provider only logs intent.

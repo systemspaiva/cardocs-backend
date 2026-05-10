@@ -51,6 +51,9 @@ public class UserAccountService {
         pdfExportRepository.findByUserIdAndDeletedAtIsNull(user.getId()).forEach(export -> export.markDeleted());
         dataExportRepository.findByUserIdAndDeletedAtIsNull(user.getId()).forEach(export -> export.markDeleted());
         user.setStatus(UserStatus.DELETED);
+        user.setEmail("deleted+" + user.getId() + "@deleted.cardocs.local");
+        user.setName("Deleted user");
+        user.setPasswordHash("deleted");
         user.markDeleted();
         userRepository.save(user);
         auditLogService.record(user.getId(), user.getOrganizationId(), "User", user.getId(), AuditAction.USER_DELETED);

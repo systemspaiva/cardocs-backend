@@ -19,7 +19,7 @@ AWS_SQS_PDF_EXPORT_QUEUE_URL=
 AWS_SQS_DATA_EXPORT_QUEUE_URL=
 ```
 
-Local defaults use `QUEUE_PROVIDER=mock` and `STORAGE_PROVIDER=mock`, so local development does not call AWS. Set `QUEUE_PROVIDER=sqs` and `STORAGE_PROVIDER=s3` only in environments where AWS access is approved and configured through the runtime environment. If an SQS queue URL is blank, `SqsQueueProvider` logs the missing configuration and does not send a message.
+Local defaults use `QUEUE_PROVIDER=mock` and `STORAGE_PROVIDER=mock`, so local development does not call AWS. Set `QUEUE_PROVIDER=sqs` and `STORAGE_PROVIDER=s3` only in environments where AWS access is approved and configured through the runtime environment. If an SQS queue URL is blank while `QUEUE_PROVIDER=sqs`, the API fails the request explicitly instead of accepting a job that cannot be delivered.
 
 ## LocalStack
 

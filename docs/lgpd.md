@@ -27,7 +27,7 @@ The MVP creates a `DataExportRequest` and sends a logical message to `data-expor
 
 ## Account Deletion
 
-`DELETE /privacy/account` revokes public share links, soft-deletes user-owned MVP records, revokes consent records, marks the user as deleted, and records an audit event. Services should keep filtering by authenticated owner and `deleted_at is null`.
+`DELETE /privacy/account` revokes public share links, soft-deletes user-owned MVP records, revokes consent records, anonymizes basic user PII, marks the user as deleted, and records an audit event. Services should keep filtering by authenticated owner and `deleted_at is null`.
 
 ## Audit
 

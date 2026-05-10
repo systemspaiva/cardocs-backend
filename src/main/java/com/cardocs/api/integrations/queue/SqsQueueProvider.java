@@ -1,5 +1,6 @@
 package com.cardocs.api.integrations.queue;
 
+import com.cardocs.api.common.BadRequestException;
 import com.cardocs.api.config.AppProperties;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -24,8 +25,7 @@ public class SqsQueueProvider implements QueueProvider {
     public void send(QueueName queueName, Object payload) {
         String queueUrl = queueUrl(queueName);
         if (queueUrl == null || queueUrl.isBlank()) {
-            log.info("SQS queue URL not configured for {}; message not sent in this environment", queueName);
-            return;
+            throw new BadRequestException("SQS queue URL não configurada para " + queueName);
         }
         try {
             sqsClient.sendMessage(SendMessageRequest.builder()

@@ -4,6 +4,7 @@ import com.cardocs.api.audit.AuditAction;
 import com.cardocs.api.audit.AuditLogService;
 import com.cardocs.api.common.BadRequestException;
 import com.cardocs.api.common.ResourceNotFoundException;
+import com.cardocs.api.config.AppProperties;
 import com.cardocs.api.consents.ConsentService;
 import com.cardocs.api.consents.ConsentType;
 import com.cardocs.api.users.User;
@@ -30,10 +31,14 @@ public class ShareLinkService {
     private final ConsentService consentService;
     private final AuditLogService auditLogService;
     private final UserRepository userRepository;
+    private final AppProperties properties;
     private final SecureRandom secureRandom = new SecureRandom();
 
     @Transactional
     public ShareLinkResponse create(User user, UUID vehicleId, CreateShareLinkRequest request) {
+        if (!properties.getFeatures().isPublicShareLink()) {
+            throw new BadRequestException("Dossiê público está desativado por feature flag");
+        }
         Vehicle vehicle = vehicleService.getOwnedVehicle(user, vehicleId);
         if (!consentService.hasGranted(user, ConsentType.SHARE_RESALE_DOSSIER)) {
             throw new BadRequestException("Consentimento SHARE_RESALE_DOSSIER é obrigatório para compartilhar dossiê");
@@ -72,6 +77,9 @@ public class ShareLinkService {
 
     @Transactional
     public PublicShareLinkResponse publicView(String token) {
+        if (!properties.getFeatures().isPublicShareLink()) {
+            throw new ResourceNotFoundException("Link público não encontrado");
+        }
         ShareLink link = repository.findByTokenAndDeletedAtIsNull(token)
             .orElseThrow(() -> new ResourceNotFoundException("Link público não encontrado"));
         if (link.getStatus() != ShareLinkStatus.ACTIVE) {
@@ -102,7 +110,6 @@ public class ShareLinkService {
             .orElseThrow(() -> new ResourceNotFoundException("Link de compartilhamento não encontrado"));
         link.setStatus(ShareLinkStatus.REVOKED);
         link.setRevokedAt(Instant.now());
-        auditLogService.record(link.getUserId(), null, "ShareLink", link.getId(), AuditAction.SHARE_LINK_REVOKED);
     }
 
     private String generateToken() {

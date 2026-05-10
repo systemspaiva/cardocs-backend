@@ -4,6 +4,7 @@ import com.cardocs.api.audit.AuditAction;
 import com.cardocs.api.audit.AuditLogService;
 import com.cardocs.api.common.BadRequestException;
 import com.cardocs.api.common.ResourceNotFoundException;
+import com.cardocs.api.config.AppProperties;
 import com.cardocs.api.integrations.vehicleregistry.VehicleRegistryLookupResponse;
 import com.cardocs.api.integrations.vehicleregistry.VehicleRegistryProvider;
 import com.cardocs.api.users.User;
@@ -19,6 +20,7 @@ public class VehicleService {
 
     private final VehicleRepository vehicleRepository;
     private final VehicleRegistryProvider vehicleRegistryProvider;
+    private final AppProperties properties;
     private final AuditLogService auditLogService;
 
     @Transactional
@@ -103,6 +105,9 @@ public class VehicleService {
 
     @Transactional(readOnly = true)
     public VehicleRegistryLookupResponse lookup(User user, LookupPlateRequest request) {
+        if (!properties.getFeatures().isVehicleRegistryIntegration()) {
+            throw new BadRequestException("Consulta por placa está desativada por feature flag");
+        }
         return vehicleRegistryProvider.lookupByPlate(normalizePlate(request.plate()));
     }
 

@@ -50,7 +50,7 @@ cardocs:
     notification: ${NOTIFICATION_PROVIDER:mock}
     queue: ${QUEUE_PROVIDER:mock}
   features:
-    vehicle-registry-integration: ${FEATURE_VEHICLE_REGISTRY_INTEGRATION:false}
+    vehicle-registry-integration: ${FEATURE_VEHICLE_REGISTRY_INTEGRATION:true}
     ocr-integration: ${FEATURE_OCR_INTEGRATION:true}
     notifications: ${FEATURE_NOTIFICATIONS:false}
     public-share-link: ${FEATURE_PUBLIC_SHARE_LINK:true}

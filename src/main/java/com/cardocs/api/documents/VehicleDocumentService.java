@@ -92,6 +92,9 @@ public class VehicleDocumentService {
 
     @Transactional
     public VehicleDocumentResponse enqueueOcr(User user, UUID vehicleId, UUID documentId) {
+        if (!properties.getFeatures().isOcrIntegration()) {
+            throw new BadRequestException("OCR está desativado por feature flag");
+        }
         requireConsent(user, ConsentType.OCR_PROCESSING);
         VehicleDocument document = getOwnedDocument(user, vehicleId, documentId);
         document.setOcrStatus(OcrStatus.PENDING);
