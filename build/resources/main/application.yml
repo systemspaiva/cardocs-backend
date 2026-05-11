@@ -1,23 +1,8 @@
 spring:
   application:
-    name: cardocs-api
-  profiles:
-    active: ${APP_ENV:local}
-  datasource:
-    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/cardocs}
-    username: ${DATABASE_USERNAME:cardocs}
-    password: ${DATABASE_PASSWORD:cardocs}
-  jpa:
-    hibernate:
-      ddl-auto: validate
-    open-in-view: false
-    properties:
-      hibernate:
-        jdbc:
-          time_zone: UTC
-  flyway:
-    enabled: true
+    name: cardocs-backend
   jackson:
+    property-naming-strategy: LOWER_CAMEL_CASE
     default-property-inclusion: non_null
 
 server:
@@ -29,55 +14,15 @@ management:
       exposure:
         include: health,info
 
+carsxe:
+  base-url: ${CARSXE_BASE_URL:https://api.carsxe.com}
+  api-key: ${CARSXE_API_KEY:}
+
 cardocs:
-  app:
-    base-url: ${APP_BASE_URL:http://localhost:8080}
-    cors-allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173}
-  jwt:
-    secret: ${JWT_SECRET:local-development-secret-change-me-local-development-secret}
-    access-token-expiration: ${JWT_ACCESS_TOKEN_EXPIRATION:15m}
-    refresh-token-expiration: ${JWT_REFRESH_TOKEN_EXPIRATION:30d}
-  aws:
-    region: ${AWS_REGION:sa-east-1}
-    s3-bucket: ${AWS_S3_BUCKET:}
-    sqs-ocr-queue-url: ${AWS_SQS_OCR_QUEUE_URL:}
-    sqs-pdf-export-queue-url: ${AWS_SQS_PDF_EXPORT_QUEUE_URL:}
-    sqs-data-export-queue-url: ${AWS_SQS_DATA_EXPORT_QUEUE_URL:}
-  providers:
-    ocr: ${OCR_PROVIDER:mock}
-    vehicle-registry: ${VEHICLE_REGISTRY_PROVIDER:mock}
-    storage: ${STORAGE_PROVIDER:mock}
-    notification: ${NOTIFICATION_PROVIDER:mock}
-    queue: ${QUEUE_PROVIDER:mock}
-  features:
-    vehicle-registry-integration: ${FEATURE_VEHICLE_REGISTRY_INTEGRATION:false}
-    ocr-integration: ${FEATURE_OCR_INTEGRATION:true}
-    notifications: ${FEATURE_NOTIFICATIONS:false}
-    public-share-link: ${FEATURE_PUBLIC_SHARE_LINK:true}
-  storage:
-    max-document-size-bytes: ${MAX_DOCUMENT_SIZE_BYTES:10485760}
-    allowed-content-types:
-      - application/pdf
-      - image/jpeg
-      - image/png
-      - image/webp
+  security:
+    api-key: ${CARDOCS_API_KEY:}
 
----
-spring:
-  config:
-    activate:
-      on-profile: hml
-
-logging:
-  level:
-    com.cardocs.api: INFO
-
----
-spring:
-  config:
-    activate:
-      on-profile: prod
-
-logging:
-  level:
-    com.cardocs.api: INFO
+aws:
+  region: ${AWS_REGION:us-east-1}
+  dynamodb:
+    table-name: ${CARDOCS_DYNAMODB_TABLE:cardocs-develop}

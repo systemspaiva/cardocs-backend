@@ -1,0 +1,11 @@
+FROM eclipse-temurin:21-jre-alpine
+
+RUN addgroup -S cardocs && adduser -S cardocs -G cardocs
+WORKDIR /app
+
+COPY build/libs/*.jar /app/cardocs-backend.jar
+
+USER cardocs
+EXPOSE 8080
+
+ENTRYPOINT ["java", "-jar", "/app/cardocs-backend.jar"]

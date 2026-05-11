@@ -1,0 +1,7 @@
+.gradle
+build/*
+!build/libs/
+!build/libs/*.jar
+terraform/.terraform
+terraform/*.tfstate
+terraform/*.tfstate.backup
