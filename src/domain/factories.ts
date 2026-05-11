@@ -80,7 +80,12 @@ export function assertRealVehicleData(candidate: Pick<VehicleCandidate, "brand" 
   }
 }
 
-export function toVehicleProfile(ownerId: string, candidate: VehicleCandidate, initialMileage: number): VehicleProfile {
+export function toVehicleProfile(
+  ownerId: string,
+  candidate: VehicleCandidate,
+  initialMileage: number,
+  options: { plateVerified?: boolean } = {}
+): VehicleProfile {
   const plate = normalizePlate(candidate.plate);
   assertValidBrazilianPlate(plate);
   assertRealVehicleData(candidate);
@@ -97,8 +102,8 @@ export function toVehicleProfile(ownerId: string, candidate: VehicleCandidate, i
     mileage: Math.max(0, Math.trunc(initialMileage || 0)),
     nextServiceTitle: "Primeira organizacao",
     nextServiceDistance: "Pronto para importar historico",
-    statusTags: ["Placa cadastrada"],
-    image: null
+    statusTags: [options.plateVerified ? "Placa Verificada" : "Placa cadastrada"],
+    image: candidate.image ?? null
   };
 }
 

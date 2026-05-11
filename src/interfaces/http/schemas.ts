@@ -23,7 +23,7 @@ export const vehicleCandidateSchema = z.object({
 });
 
 export const vehicleRegistrationSchema = z.object({
-  candidate: vehicleCandidateSchema,
+  plate: z.string().min(1),
   initialMileage: z.number().int().min(0).default(0)
 });
 

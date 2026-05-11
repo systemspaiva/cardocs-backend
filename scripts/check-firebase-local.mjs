@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 
 const backendDir = process.cwd();
@@ -16,6 +16,29 @@ function read(relativePath, base = backendDir) {
   const filePath = path.resolve(base, relativePath);
   if (!existsSync(filePath)) return "";
   return readFileSync(filePath, "utf8");
+}
+
+function readAllSourceFiles(relativeDir, base = backendDir) {
+  const directoryPath = path.resolve(base, relativeDir);
+  if (!existsSync(directoryPath)) return "";
+
+  const entries = [];
+  const pending = [directoryPath];
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (!current) continue;
+
+    for (const entry of readdirSync(current, { withFileTypes: true })) {
+      const entryPath = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        pending.push(entryPath);
+      } else if (entry.isFile() && entry.name.endsWith(".ts")) {
+        entries.push(readFileSync(entryPath, "utf8"));
+      }
+    }
+  }
+
+  return entries.join("\n");
 }
 
 function json(relativePath, base = backendDir) {
@@ -63,12 +86,14 @@ report("NODE_LISTENS_ON_PORT", server.includes("process.env.PORT") && server.inc
 report("NODE_NO_FUNCTIONS_ONREQUEST", !server.includes("onRequest") && !server.includes("firebase-functions"));
 
 const routes = read("src/interfaces/http/routes.ts");
+const plateProvider = read("src/infrastructure/apiplacasVehicleDataProvider.ts");
 report("API_HEALTH_ROUTE", routes.includes("/v1/health"));
 report("API_FIREBASE_AUTH_VERIFICATION", routes.includes("verifyIdToken"));
 report("API_INVALID_TOKEN_RETURNS_UNAUTHORIZED", routes.includes("Firebase ID token invalido ou expirado"));
 report("API_PUBLIC_REPORT_ROUTE", routes.includes("/r/:slug"));
-report("API_PROVIDER_CALLS_FAIL_CLOSED", routes.includes("Provider real de consulta por placa ainda nao esta configurado.") && routes.includes("Provider real de OCR/IA ainda nao esta configurado.") && routes.includes("Provider real de OCR/IA ainda nao esta configurado para salvar documentos."));
-report("API_MANUAL_REGISTRATION_NOT_MARKED_VERIFIED", read("src/domain/factories.ts").includes("statusTags: [\"Placa cadastrada\"]") && read("src/domain/factories.ts").includes("image: null"));
+report("API_PLATE_LOOKUP_USES_APIPLACAS_PROVIDER", routes.includes("plateLookup.lookup(body.plate)") && plateProvider.includes("APIPLACAS_TOKEN") && plateProvider.includes("https://wdapi2.com.br"));
+report("API_VEHICLE_REGISTRATION_REVALIDATES_PLATE", routes.includes("await plateLookup.lookup(body.plate)") && routes.includes("plateVerified: true"));
+report("API_PROVIDER_CALLS_FAIL_CLOSED", routes.includes("Provider real de OCR/IA ainda nao esta configurado.") && routes.includes("Provider real de OCR/IA ainda nao esta configurado para salvar documentos."));
 
 const repository = read("src/infrastructure/firebaseGarageRepository.ts");
 report("FIRESTORE_REPOSITORY", repository.includes("collection(\"users\")") && repository.includes("collection(\"vehicles\")"));
@@ -76,7 +101,7 @@ report("FIRESTORE_TRANSACTIONAL_WRITES", repository.includes("runTransaction"));
 report("PUBLIC_REPORT_SLUG_OWNER_SCOPED", read("src/domain/factories.ts").includes("publicReportSlug") && repository.includes("publicReportSlug(vehicle)"));
 
 const iosInfo = read("cardocs/Info.plist", iosDir);
-report("IOS_API_BASE_URL_FIREBASE_HOSTING", iosInfo.includes("https://cardocs-app.web.app"));
+report("IOS_API_BASE_URL_FIREBASE_HOSTING", /https:\/\/cardocs-app(?:--[a-z0-9-]+)?\.web\.app/.test(iosInfo));
 report("IOS_GOOGLE_CALLBACK_BASE_SCHEME", iosInfo.includes("<string>cardocs</string>"));
 
 const iosApp = read("cardocs/cardocsApp.swift", iosDir);
@@ -98,10 +123,7 @@ report("IOS_APPLE_SIGN_IN_ENTITLEMENT", entitlements.includes("com.apple.develop
 
 const forbiddenBackend = /Cognito|AWS|Dynamo|amazonaws|execute-api|Mercado Livre|MercadoLivre|api\.mercadolibre/.test(
   [
-    routes,
-    repository,
-    server,
-    read("src/domain/factories.ts"),
+    readAllSourceFiles("src"),
     read("README.md")
   ].join("\n")
 );

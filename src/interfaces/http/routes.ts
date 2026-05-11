@@ -1,12 +1,12 @@
 import { NextFunction, Request, Response, Router } from "express";
 import { getAuth, type DecodedIdToken, type UserRecord } from "firebase-admin/auth";
 import {
-  assertRealVehicleData,
-  assertValidBrazilianPlate,
   generateResaleDossier,
   toVehicleProfile
 } from "../../domain/factories.js";
 import { ResaleDossier } from "../../domain/models.js";
+import { VehicleImageLookupUseCase, VehicleImageProvider } from "../../application/vehicleImageLookup.js";
+import { VehiclePlateDataProvider, VehiclePlateLookupUseCase } from "../../application/vehiclePlateLookup.js";
 import { FirebaseGarageRepository } from "../../infrastructure/firebaseGarageRepository.js";
 import { FirebaseUserRepository } from "../../infrastructure/firebaseUserRepository.js";
 import { ProviderNotConfiguredError, UnauthorizedError } from "../../application/errors.js";
@@ -26,9 +26,13 @@ interface AuthenticatedRequest extends Request {
 
 export function createRouter(
   repository: FirebaseGarageRepository,
-  userRepository: FirebaseUserRepository
+  userRepository: FirebaseUserRepository,
+  vehiclePlateProvider: VehiclePlateDataProvider | null = null,
+  vehicleImageProvider: VehicleImageProvider | null = null
 ): Router {
   const router = Router();
+  const plateLookup = new VehiclePlateLookupUseCase(vehiclePlateProvider);
+  const imageLookup = new VehicleImageLookupUseCase(vehicleImageProvider);
 
   router.get("/v1/health", (_request, response) => {
     response.json({ status: "UP", runtime: "node" });
@@ -55,21 +59,26 @@ export function createRouter(
     response.json(await repository.loadDashboard(requireOwnerId(request)));
   }));
 
-  router.post("/v1/vehicles/plate-lookup", asyncHandler(async (request, _response) => {
+  router.post("/v1/vehicles/plate-lookup", asyncHandler(async (request, response) => {
     const body = plateLookupSchema.parse(request.body);
-    assertValidBrazilianPlate(body.plate);
-    throw new ProviderNotConfiguredError("Provider real de consulta por placa ainda nao esta configurado.");
+    response.json(await plateLookup.lookup(body.plate));
   }));
 
   router.post("/v1/vehicles/image", asyncHandler(async (request, response) => {
     const body = vehicleImageLookupSchema.parse(request.body);
-    assertRealVehicleData(body);
-    response.status(404).send();
+    const image = await imageLookup.lookup(body);
+    if (!image) {
+      response.status(404).send();
+      return;
+    }
+
+    response.json(image);
   }));
 
   router.post("/v1/vehicles", asyncHandler(async (request: AuthenticatedRequest, response) => {
     const body = vehicleRegistrationSchema.parse(request.body);
-    const vehicle = toVehicleProfile(requireOwnerId(request), body.candidate, body.initialMileage);
+    const candidate = await plateLookup.lookup(body.plate);
+    const vehicle = toVehicleProfile(requireOwnerId(request), candidate, body.initialMileage, { plateVerified: true });
     response.status(201).json(await repository.saveVehicle(requireOwnerId(request), vehicle));
   }));
 

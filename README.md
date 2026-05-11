@@ -59,7 +59,11 @@ Todas as rotas privadas exigem:
 Authorization: Bearer <Firebase ID token>
 ```
 
-`plate-lookup`, `vehicles/image`, `invoices/analyze` e `invoices` não chamam provedores externos ainda. Eles falham fechados ou retornam `404`, evitando persistir dados fictícios no Firestore.
+`plate-lookup` consulta a API Placas pelo backend quando `APIPLACAS_TOKEN` está configurado. O cadastro em `POST /v1/vehicles` recebe apenas `plate` e `initialMileage`, revalida a placa no backend antes de persistir e ignora dados de veículo vindos do cliente, evitando salvar dados digitados manualmente ou fictícios no Firestore.
+
+`vehicles/image` consulta a CarsXE pelo backend quando `CARSXE_API_KEY` está configurada e retorna a melhor imagem real disponível para marca, modelo e ano. Quando a CarsXE não encontra imagens, a rota retorna `404` sem persistir dados fictícios no Firestore.
+
+`invoices/analyze` e `invoices` ainda não chamam provedores externos. Eles falham fechados, evitando persistir dados fictícios no Firestore.
 
 ## Firestore
 
@@ -88,6 +92,24 @@ Servidor local:
 ```bash
 PORT=8080 npm run serve
 ```
+
+Consulta real por placa:
+
+```bash
+export APIPLACAS_TOKEN="<token configurado fora do repositorio>"
+export APIPLACAS_BASE_URL="https://wdapi2.com.br"
+```
+
+Não versione nem imprima o token da API Placas. Em deploy, configure esse valor como secret/variável protegida do ambiente.
+
+Consulta real de imagem do veículo:
+
+```bash
+export CARSXE_API_KEY="<chave configurada fora do repositorio>"
+export CARSXE_BASE_URL="https://api.carsxe.com"
+```
+
+Não versione nem imprima a chave da CarsXE. Em deploy, configure esse valor como secret/variável protegida do ambiente.
 
 Auditoria remota de prontidao do Firebase/Auth, sem imprimir valores sensiveis:
 
@@ -125,7 +147,7 @@ Esse comando roda build, auditoria local, servidor Node local, readiness remoto 
 
 ## Firebase Hosting + Cloud Run
 
-O `firebase.json` aponta `/v1/**` e `/r/**` para o Cloud Run service `cardocs-backend` em `southamerica-east1`. Assim, o app continua chamando `https://cardocs-app.web.app` e o backend roda como Node.js, sem Firebase Functions.
+O `firebase.json` aponta `/v1/**` e `/r/**` para o Cloud Run service `cardocs-backend` em `southamerica-east1`. Assim, o app continua chamando o Firebase Hosting do ambiente configurado no `CARDOCS_API_BASE_URL` e o backend roda como Node.js, sem Firebase Functions.
 
 Quando o deploy for autorizado, o fluxo esperado exige confirmação explícita por variável de ambiente:
 

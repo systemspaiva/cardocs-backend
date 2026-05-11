@@ -12,7 +12,7 @@
 - Google auth: code ready; remote OAuth/client config not present.
 - No service account or local secret committed: guarded by `.gitignore`, `.dockerignore`, `.gcloudignore`, `check:no-sensitive-files`, and current workspace scan.
 - No direct Mercado Livre calls: local artifact ready.
-- No fake data persisted to Firestore: provider-dependent flows fail closed unless real data is supplied; invoice analysis and invoice save both fail closed until a real OCR/IA provider is configured; manual vehicle registration is stored as `Placa cadastrada`, not verified, and does not persist client-supplied image metadata.
+- No fake data persisted to Firestore: provider-dependent flows fail closed unless real data is supplied; invoice analysis and invoice save both fail closed until a real OCR/IA provider is configured; manual vehicle registration was removed, and vehicle registration now revalidates the plate through the backend provider before saving.
 - Public report slugs include a vehicle-specific suffix, avoiding global overwrite by plate alone.
 - Deploy scripts require `CARDOCS_ALLOW_DEPLOY=1` and an explicit `FIREBASE_PROJECT_ID`.
 
@@ -30,7 +30,7 @@
 | Support Google login | `RemoteAuthRepository.swift` uses GoogleSignIn and `GoogleAuthProvider`; readiness reports `AUTH_GOOGLE_COM=missing`, `CLIENT_ID=missing`, and `REVERSED_CLIENT_ID=missing`. | Blocked by missing Google OAuth client ID/secret. |
 | Use backend service account safely | Scripts accept `GOOGLE_APPLICATION_CREDENTIALS` path; secret file patterns are ignored by `.gitignore`, `.dockerignore`, and `.gcloudignore`; `check:no-sensitive-files` scans both repos for service account/private key artifacts; scripts print presence/status only. | Ready locally; credentials not committed. |
 | No Mercado Livre direct calls | `check:firebase-local` scans active backend source and reports `BACKEND_NO_LEGACY_PROVIDER_REFERENCES=ok`. | Ready. |
-| No fake data saved in DB | Provider-dependent flows fail closed, including invoice save; manual vehicle registration is not marked verified and stores no client-provided image metadata; `check:firebase-local` reports `API_PROVIDER_CALLS_FAIL_CLOSED=ok` and `API_MANUAL_REGISTRATION_NOT_MARKED_VERIFIED=ok`. | Ready locally. |
+| No fake data saved in DB | Provider-dependent flows fail closed, including invoice save; vehicle registration accepts only plate and mileage, then revalidates the plate through the backend provider before saving; `check:firebase-local` reports `API_PROVIDER_CALLS_FAIL_CLOSED=ok` and `API_VEHICLE_REGISTRATION_REVALIDATES_PLATE=ok`. | Ready locally. |
 | Final deploy readiness | `check:firebase-deploy-readiness` checks Service Usage and Cloud Run service existence. | Blocked by `403` for required services and Cloud Run. |
 
 ## Local gates

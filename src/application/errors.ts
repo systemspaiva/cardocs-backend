@@ -31,3 +31,15 @@ export class ProviderNotConfiguredError extends AppError {
     super(message, 501, "provider_not_configured");
   }
 }
+
+export class ProviderLimitExceededError extends AppError {
+  constructor(message = "Limite de consultas do provedor atingido.") {
+    super(message, 429, "provider_limit_exceeded");
+  }
+}
+
+export class ExternalProviderError extends AppError {
+  constructor(message: string) {
+    super(message, 502, "external_provider_error");
+  }
+}
