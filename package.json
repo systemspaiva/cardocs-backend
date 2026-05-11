@@ -1,0 +1,37 @@
+{
+  "name": "cardocs-node-backend",
+  "version": "0.1.0",
+  "private": true,
+  "main": "lib/index.js",
+  "engines": {
+    "node": "22"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node lib/index.js",
+    "serve": "npm run build && node lib/index.js",
+    "deploy:run": "sh scripts/deploy-cloud-run.sh",
+    "deploy:hosting": "sh scripts/deploy-firebase-hosting.sh",
+    "check:firebase-local": "node scripts/check-firebase-local.mjs",
+    "check:firebase-readiness": "node scripts/check-firebase-readiness.mjs",
+    "check:firebase-deploy-readiness": "node scripts/check-firebase-deploy-readiness.mjs",
+    "check:no-sensitive-files": "node scripts/check-no-sensitive-files.mjs",
+    "configure:firebase-auth": "node scripts/configure-firebase-auth.mjs",
+    "verify:server": "sh scripts/verify-node-server.sh",
+    "verify:migration": "sh scripts/verify-firebase-migration.sh",
+    "refresh:ios-config": "node scripts/refresh-ios-firebase-config.mjs",
+    "typecheck": "tsc --noEmit",
+    "verify:local": "npm run build && npm run check:no-sensitive-files && npm run check:firebase-local && npm run verify:server"
+  },
+  "dependencies": {
+    "express": "5.2.1",
+    "firebase-admin": "13.9.0",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/express": "5.0.6",
+    "@types/node": "25.6.2",
+    "google-auth-library": "10.6.2",
+    "typescript": "6.0.3"
+  }
+}

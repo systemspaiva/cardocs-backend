@@ -1,18 +1,22 @@
-FROM gradle:9.4.1-jdk21-alpine AS build
+FROM node:22-slim AS build
 
-WORKDIR /workspace
-COPY . .
-RUN gradle --no-daemon bootJar
-
-FROM eclipse-temurin:21-jre-alpine
-
-RUN addgroup -S cardocs && adduser -S cardocs -G cardocs
 WORKDIR /app
 
-COPY --from=build /workspace/build/libs/*.jar /app/cardocs-backend.jar
+COPY package*.json ./
+RUN npm ci
 
-USER cardocs
-EXPOSE 8080
+COPY tsconfig.json ./
+COPY src ./src
+RUN npm run build
 
-ENTRYPOINT ["java", "-jar", "/app/cardocs-backend.jar"]
+FROM node:22-slim
 
+ENV NODE_ENV=production
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm ci --omit=dev
+
+COPY --from=build /app/lib ./lib
+
+CMD ["node", "lib/index.js"]

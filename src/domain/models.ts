@@ -1,0 +1,167 @@
+export type VehicleKind = "car" | "motorcycle";
+export type PartHealthTone = "healthy" | "warning" | "neutral";
+export type InvoiceSource = "cameraScan" | "fileImport" | "photoLibrary";
+
+export interface UserProfile {
+  id: string;
+  email: string | null;
+  displayName: string | null;
+  photoURL: string | null;
+  emailVerified: boolean;
+  signInProvider: string | null;
+  providerIds: string[];
+}
+
+export interface VehicleImage {
+  url: string;
+  thumbnailUrl?: string | null;
+  mime?: string | null;
+  width?: number | null;
+  height?: number | null;
+  accentColor?: string | null;
+  source: string;
+}
+
+export interface VehicleCandidate {
+  id: string;
+  kind: VehicleKind;
+  plate: string;
+  brand: string;
+  model: string;
+  year: string;
+  color: string;
+  image?: VehicleImage | null;
+}
+
+export interface VehicleProfile extends VehicleCandidate {
+  maskedPlate: string;
+  mileage: number;
+  nextServiceTitle: string;
+  nextServiceDistance: string;
+  statusTags: string[];
+}
+
+export interface InvestmentSummary {
+  total: number;
+  maintenance: number;
+  documentsAndTaxes: number;
+}
+
+export interface MaintenanceRecord {
+  id: string;
+  iconName: string;
+  title: string;
+  subtitle: string;
+  date: string;
+  amount: number;
+  isAIValidated: boolean;
+}
+
+export interface PartHealth {
+  id: string;
+  iconName: string;
+  name: string;
+  message: string;
+  percentage: number;
+  replacedAt: string;
+  limit: string;
+  tone: PartHealthTone;
+}
+
+export interface VaultDocument {
+  id: string;
+  title: string;
+  date: string;
+  amount: number;
+  status: string;
+}
+
+export interface ResaleHighlight {
+  id: string;
+  iconName: string;
+  title: string;
+  value: string;
+}
+
+export interface ResaleReportSection {
+  id: string;
+  iconName: string;
+  title: string;
+  status: string;
+  detail: string;
+}
+
+export interface ResaleDossier {
+  title: string;
+  summary: string;
+  score: number;
+  estimatedValueIncrease: number;
+  publicReportURL: string;
+  highlights: ResaleHighlight[];
+  checks: string[];
+  reportSections: ResaleReportSection[];
+}
+
+export interface VehicleGarage {
+  id: string;
+  vehicle: VehicleProfile;
+  investment: InvestmentSummary;
+  timeline: MaintenanceRecord[];
+  healthItems: PartHealth[];
+  vaultDocuments: VaultDocument[];
+  resaleDossier: ResaleDossier;
+}
+
+export interface VehicleDashboard {
+  id: string;
+  garages: VehicleGarage[];
+  selectedGarageID: string;
+  detectedVehicle: VehicleCandidate;
+}
+
+export interface InvoiceDocumentInput {
+  source: InvoiceSource;
+  displayName: string;
+}
+
+export interface InvoiceExtractedField {
+  id: string;
+  label: string;
+  value: string;
+  confidence: number;
+}
+
+export interface InvoiceHealthImpact {
+  id: string;
+  iconName: string;
+  title: string;
+  detail: string;
+}
+
+export interface InvoiceScanDraft {
+  id: string;
+  source: InvoiceSource;
+  supplierName: string;
+  serviceTitle: string;
+  category: string;
+  date: string;
+  amount: number;
+  mileage: number;
+  confidence: number;
+  extractedFields: InvoiceExtractedField[];
+  healthImpacts: InvoiceHealthImpact[];
+}
+
+export interface InvestmentDelta {
+  total: number;
+  maintenance: number;
+  documentsAndTaxes: number;
+}
+
+export interface AutomationResult {
+  title: string;
+  message: string;
+  investmentDelta: InvestmentDelta;
+  record: MaintenanceRecord;
+  document: VaultDocument;
+}
