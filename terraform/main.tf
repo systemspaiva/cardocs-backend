@@ -70,6 +70,73 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "uploads" {
   }
 }
 
+resource "aws_cognito_user_pool" "mobile" {
+  name = "${local.name}-mobile"
+
+  username_attributes      = ["email"]
+  auto_verified_attributes = ["email"]
+
+  admin_create_user_config {
+    allow_admin_create_user_only = false
+  }
+
+  username_configuration {
+    case_sensitive = false
+  }
+
+  password_policy {
+    minimum_length                   = 6
+    require_lowercase                = false
+    require_numbers                  = false
+    require_symbols                  = false
+    require_uppercase                = false
+    temporary_password_validity_days = 7
+  }
+
+  schema {
+    attribute_data_type = "String"
+    mutable             = true
+    name                = "email"
+    required            = true
+  }
+
+  schema {
+    attribute_data_type = "String"
+    mutable             = true
+    name                = "name"
+    required            = false
+  }
+
+  lifecycle {
+    ignore_changes = [schema]
+  }
+
+  tags = local.tags
+}
+
+resource "aws_cognito_user_pool_client" "mobile" {
+  name         = "${local.name}-ios"
+  user_pool_id = aws_cognito_user_pool.mobile.id
+
+  generate_secret = false
+
+  explicit_auth_flows = [
+    "ALLOW_ADMIN_USER_PASSWORD_AUTH",
+    "ALLOW_REFRESH_TOKEN_AUTH"
+  ]
+
+  prevent_user_existence_errors = "ENABLED"
+  refresh_token_validity        = 30
+  access_token_validity         = 24
+  id_token_validity             = 24
+
+  token_validity_units {
+    access_token  = "hours"
+    id_token      = "hours"
+    refresh_token = "days"
+  }
+}
+
 resource "aws_cloudwatch_log_group" "api" {
   name              = "/ecs/${local.name}"
   retention_in_days = 14
@@ -81,21 +148,32 @@ resource "aws_security_group" "alb" {
   description = "Allow public HTTP traffic to CarDocs API"
   vpc_id      = var.vpc_id
 
-  dynamic "ingress" {
-    for_each = length(var.allowed_cidr_blocks) > 0 ? [1] : []
-
-    content {
-      from_port   = 80
-      to_port     = 80
-      protocol    = "tcp"
-      cidr_blocks = var.allowed_cidr_blocks
-    }
+  ingress {
+    from_port       = 80
+    to_port         = 80
+    protocol        = "tcp"
+    security_groups = [aws_security_group.api_gateway_vpc_link.id]
   }
 
   egress {
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = local.tags
+}
+
+resource "aws_security_group" "api_gateway_vpc_link" {
+  name        = "${local.name}-api-gateway-vpc-link"
+  description = "Allow API Gateway VPC Link egress to the CarDocs API load balancer"
+  vpc_id      = var.vpc_id
+
+  egress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
 
@@ -126,9 +204,10 @@ resource "aws_security_group" "api" {
 
 resource "aws_lb" "api" {
   name               = local.name
+  internal           = true
   load_balancer_type = "application"
   security_groups    = [aws_security_group.alb.id]
-  subnets            = var.public_subnet_ids
+  subnets            = var.private_subnet_ids
   tags               = local.tags
 }
 
@@ -160,6 +239,41 @@ resource "aws_lb_listener" "http" {
     type             = "forward"
     target_group_arn = aws_lb_target_group.api.arn
   }
+}
+
+resource "aws_apigatewayv2_vpc_link" "api" {
+  name               = local.name
+  security_group_ids = [aws_security_group.api_gateway_vpc_link.id]
+  subnet_ids         = var.private_subnet_ids
+  tags               = local.tags
+}
+
+resource "aws_apigatewayv2_api" "api" {
+  name          = local.name
+  protocol_type = "HTTP"
+  tags          = local.tags
+}
+
+resource "aws_apigatewayv2_integration" "api" {
+  api_id             = aws_apigatewayv2_api.api.id
+  connection_id      = aws_apigatewayv2_vpc_link.api.id
+  connection_type    = "VPC_LINK"
+  integration_method = "ANY"
+  integration_type   = "HTTP_PROXY"
+  integration_uri    = aws_lb_listener.http.arn
+}
+
+resource "aws_apigatewayv2_route" "default" {
+  api_id    = aws_apigatewayv2_api.api.id
+  route_key = "$default"
+  target    = "integrations/${aws_apigatewayv2_integration.api.id}"
+}
+
+resource "aws_apigatewayv2_stage" "default" {
+  api_id      = aws_apigatewayv2_api.api.id
+  name        = "$default"
+  auto_deploy = true
+  tags        = local.tags
 }
 
 data "aws_iam_policy_document" "ecs_task_assume_role" {
@@ -234,6 +348,24 @@ resource "aws_iam_role_policy" "task_data_access" {
           "s3:DeleteObject"
         ]
         Resource = "${aws_s3_bucket.uploads.arn}/*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "cognito-idp:AdminInitiateAuth",
+          "cognito-idp:ConfirmSignUp",
+          "cognito-idp:ResendConfirmationCode",
+          "cognito-idp:SignUp"
+        ]
+        Resource = aws_cognito_user_pool.mobile.arn
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "cognito-idp:GetUser",
+          "cognito-idp:GlobalSignOut"
+        ]
+        Resource = "*"
       }
     ]
   })
@@ -277,6 +409,18 @@ resource "aws_ecs_task_definition" "api" {
         {
           name  = "CARDOCS_UPLOADS_BUCKET"
           value = aws_s3_bucket.uploads.bucket
+        },
+        {
+          name  = "CARDOCS_COGNITO_REGION"
+          value = var.aws_region
+        },
+        {
+          name  = "CARDOCS_COGNITO_USER_POOL_ID"
+          value = aws_cognito_user_pool.mobile.id
+        },
+        {
+          name  = "CARDOCS_COGNITO_APP_CLIENT_ID"
+          value = aws_cognito_user_pool_client.mobile.id
         }
       ]
       secrets = concat(

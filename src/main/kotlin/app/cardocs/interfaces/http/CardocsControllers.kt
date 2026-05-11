@@ -2,8 +2,10 @@ package app.cardocs.interfaces.http
 
 import app.cardocs.application.usecase.DashboardUseCase
 import app.cardocs.application.usecase.InvoiceUseCase
+import app.cardocs.application.usecase.AuthUseCase
 import app.cardocs.application.usecase.ResaleDossierUseCase
 import app.cardocs.application.usecase.VehicleUseCase
+import jakarta.servlet.http.HttpServletRequest
 import jakarta.validation.Valid
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
@@ -11,7 +13,6 @@ import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
-import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestController
@@ -25,13 +26,48 @@ class HealthController {
 }
 
 @RestController
+@RequestMapping("/v1/auth")
+class AuthController(
+    private val authUseCase: AuthUseCase
+) {
+    @PostMapping("/sign-up")
+    @ResponseStatus(HttpStatus.CREATED)
+    fun signUp(@Valid @RequestBody request: SignUpRequestDto): SignUpResultDto =
+        authUseCase.signUp(request.toDomain()).toDto()
+
+    @PostMapping("/confirm-sign-up")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    fun confirmSignUp(@Valid @RequestBody request: ConfirmSignUpRequestDto) {
+        authUseCase.confirmSignUp(request.toDomain())
+    }
+
+    @PostMapping("/resend-sign-up-code")
+    fun resendSignUpCode(@Valid @RequestBody request: ResendSignUpCodeRequestDto): SignUpResultDto =
+        authUseCase.resendSignUpCode(request.toDomain()).toDto()
+
+    @PostMapping("/sign-in")
+    fun signIn(@Valid @RequestBody request: SignInRequestDto): AuthSessionDto =
+        authUseCase.signIn(request.toDomain()).toDto()
+
+    @PostMapping("/refresh")
+    fun refresh(@Valid @RequestBody request: RefreshSessionRequestDto): AuthSessionDto =
+        authUseCase.refreshSession(request.toDomain()).toDto()
+
+    @PostMapping("/sign-out")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    fun signOut(request: HttpServletRequest) {
+        authUseCase.signOut(request.bearerToken().orEmpty())
+    }
+}
+
+@RestController
 @RequestMapping("/v1/dashboard")
 class DashboardController(
     private val dashboardUseCase: DashboardUseCase
 ) {
     @GetMapping
-    fun dashboard(@RequestHeader("X-CarDocs-Owner-Id") ownerId: String): DashboardDto =
-        dashboardUseCase.loadDashboard(ownerId.requireOwnerId()).toDto()
+    fun dashboard(request: HttpServletRequest): DashboardDto =
+        dashboardUseCase.loadDashboard(request.requireOwnerId()).toDto()
 }
 
 @RestController
@@ -53,10 +89,10 @@ class VehicleController(
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     fun register(
-        @RequestHeader("X-CarDocs-Owner-Id") ownerId: String,
-        @Valid @RequestBody request: VehicleRegistrationRequestDto
+        servletRequest: HttpServletRequest,
+        @Valid @RequestBody body: VehicleRegistrationRequestDto
     ): VehicleProfileDto =
-        vehicleUseCase.register(ownerId.requireOwnerId(), request.toDomain()).toDto()
+        vehicleUseCase.register(servletRequest.requireOwnerId(), body.toDomain()).toDto()
 }
 
 @RestController
@@ -71,10 +107,10 @@ class InvoiceController(
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     fun save(
-        @RequestHeader("X-CarDocs-Owner-Id") ownerId: String,
-        @Valid @RequestBody request: SaveInvoiceRequestDto
+        servletRequest: HttpServletRequest,
+        @Valid @RequestBody body: SaveInvoiceRequestDto
     ): AutomationResultDto =
-        invoiceUseCase.save(ownerId.requireOwnerId(), request.vehicleID, request.draft.toDomain()).toDto()
+        invoiceUseCase.save(servletRequest.requireOwnerId(), body.vehicleID, body.draft.toDomain()).toDto()
 }
 
 @RestController
@@ -84,16 +120,26 @@ class ResaleDossierController(
 ) {
     @PostMapping("/resale-dossiers")
     fun generate(
-        @RequestHeader("X-CarDocs-Owner-Id") ownerId: String,
-        @Valid @RequestBody request: ResaleDossierRequestDto
+        servletRequest: HttpServletRequest,
+        @Valid @RequestBody body: ResaleDossierRequestDto
     ): ResaleDossierDto =
-        resaleDossierUseCase.generate(ownerId.requireOwnerId(), request.toDomain()).toDto()
+        resaleDossierUseCase.generate(servletRequest.requireOwnerId(), body.toDomain()).toDto()
 
     @GetMapping("/public/reports/{slug}")
     fun publicReport(@PathVariable slug: String): ResaleDossierDto =
         resaleDossierUseCase.publicReport(slug).toDto()
 }
 
-private fun String.requireOwnerId(): String =
-    trim().takeIf { it.isNotBlank() }
-        ?: throw app.cardocs.application.ValidationException("Header X-CarDocs-Owner-Id e obrigatorio.")
+private fun HttpServletRequest.requireOwnerId(): String =
+    (getAttribute(AUTHENTICATED_OWNER_ID_ATTRIBUTE) as? String)
+        ?.takeIf { it.isNotBlank() }
+        ?: getHeader("X-CarDocs-Owner-Id")?.trim()?.takeIf { it.isNotBlank() }
+        ?: throw app.cardocs.application.ValidationException("Owner autenticado ou header X-CarDocs-Owner-Id e obrigatorio.")
+
+private fun HttpServletRequest.bearerToken(): String? {
+    val value = getHeader("Authorization").orEmpty()
+    if (!value.startsWith("Bearer ", ignoreCase = true)) return null
+    return value.drop("Bearer ".length).trim().takeIf { it.isNotBlank() }
+}
+
+const val AUTHENTICATED_OWNER_ID_ATTRIBUTE = "cardocs.authenticatedOwnerId"

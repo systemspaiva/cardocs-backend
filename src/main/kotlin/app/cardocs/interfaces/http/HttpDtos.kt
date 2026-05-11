@@ -1,7 +1,9 @@
 package app.cardocs.interfaces.http
 
 import app.cardocs.application.ValidationException
+import app.cardocs.domain.model.AuthSession
 import app.cardocs.domain.model.AutomationResult
+import app.cardocs.domain.model.ConfirmSignUpRequest
 import app.cardocs.domain.model.InvoiceDocumentInput
 import app.cardocs.domain.model.InvoiceExtractedField
 import app.cardocs.domain.model.InvoiceHealthImpact
@@ -11,10 +13,15 @@ import app.cardocs.domain.model.InvestmentSummary
 import app.cardocs.domain.model.MaintenanceRecord
 import app.cardocs.domain.model.PartHealth
 import app.cardocs.domain.model.PlateLookupRequest
+import app.cardocs.domain.model.RefreshSessionRequest
+import app.cardocs.domain.model.ResendSignUpCodeRequest
 import app.cardocs.domain.model.ResaleDossier
 import app.cardocs.domain.model.ResaleDossierRequest
 import app.cardocs.domain.model.ResaleHighlight
 import app.cardocs.domain.model.ResaleReportSection
+import app.cardocs.domain.model.SignInRequest
+import app.cardocs.domain.model.SignUpRequest
+import app.cardocs.domain.model.SignUpResult
 import app.cardocs.domain.model.VehicleCandidate
 import app.cardocs.domain.model.VehicleDashboard
 import app.cardocs.domain.model.VehicleGarage
@@ -29,7 +36,57 @@ import jakarta.validation.Valid
 import jakarta.validation.constraints.NotBlank
 import jakarta.validation.constraints.NotNull
 import java.math.BigDecimal
+import java.time.Instant
 import java.util.UUID
+
+data class AuthSessionDto(
+    val id: UUID,
+    val email: String,
+    val displayName: String,
+    val accessToken: String,
+    val idToken: String,
+    val refreshToken: String?,
+    val expiresAt: Instant
+)
+
+data class SignUpResultDto(
+    val email: String,
+    val deliveryMedium: String?,
+    val destination: String?
+)
+
+data class SignInRequestDto(
+    @field:NotBlank
+    val email: String,
+    @field:NotBlank
+    val password: String
+)
+
+data class SignUpRequestDto(
+    @field:NotBlank
+    val name: String,
+    @field:NotBlank
+    val email: String,
+    @field:NotBlank
+    val password: String
+)
+
+data class ConfirmSignUpRequestDto(
+    @field:NotBlank
+    val email: String,
+    @field:NotBlank
+    val code: String
+)
+
+data class ResendSignUpCodeRequestDto(
+    @field:NotBlank
+    val email: String
+)
+
+data class RefreshSessionRequestDto(
+    @field:NotBlank
+    val refreshToken: String
+)
 
 data class DashboardDto(
     val id: UUID,
@@ -240,6 +297,49 @@ data class ErrorResponseDto(
     val error: String,
     val message: String
 )
+
+fun AuthSession.toDto(): AuthSessionDto =
+    AuthSessionDto(
+        id = id,
+        email = email,
+        displayName = displayName,
+        accessToken = accessToken,
+        idToken = idToken,
+        refreshToken = refreshToken,
+        expiresAt = expiresAt
+    )
+
+fun SignUpResult.toDto(): SignUpResultDto =
+    SignUpResultDto(
+        email = email,
+        deliveryMedium = deliveryMedium,
+        destination = destination
+    )
+
+fun SignInRequestDto.toDomain(): SignInRequest =
+    SignInRequest(
+        email = email,
+        password = password
+    )
+
+fun SignUpRequestDto.toDomain(): SignUpRequest =
+    SignUpRequest(
+        name = name,
+        email = email,
+        password = password
+    )
+
+fun ConfirmSignUpRequestDto.toDomain(): ConfirmSignUpRequest =
+    ConfirmSignUpRequest(
+        email = email,
+        code = code
+    )
+
+fun ResendSignUpCodeRequestDto.toDomain(): ResendSignUpCodeRequest =
+    ResendSignUpCodeRequest(email = email)
+
+fun RefreshSessionRequestDto.toDomain(): RefreshSessionRequest =
+    RefreshSessionRequest(refreshToken = refreshToken)
 
 fun VehicleDashboard.toDto(): DashboardDto =
     DashboardDto(

@@ -1,6 +1,7 @@
 package app.cardocs.interfaces.http
 
 import app.cardocs.application.NotFoundException
+import app.cardocs.application.ProviderUnavailableException
 import app.cardocs.application.ValidationException
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
@@ -38,6 +39,11 @@ class HttpExceptionHandler {
     fun notFound(error: NotFoundException): ResponseEntity<ErrorResponseDto> =
         ResponseEntity.status(HttpStatus.NOT_FOUND)
             .body(ErrorResponseDto(error = "not_found", message = error.message ?: "Recurso nao encontrado."))
+
+    @ExceptionHandler(ProviderUnavailableException::class)
+    fun providerUnavailable(error: ProviderUnavailableException): ResponseEntity<ErrorResponseDto> =
+        ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+            .body(ErrorResponseDto(error = "provider_unavailable", message = error.message ?: "Provider indisponivel."))
 
     @ExceptionHandler(Exception::class)
     fun unexpected(error: Exception): ResponseEntity<ErrorResponseDto> =

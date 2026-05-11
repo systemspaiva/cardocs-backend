@@ -14,6 +14,14 @@ management:
       exposure:
         include: health,info
 
+springdoc:
+  api-docs:
+    path: /v1/swagger/api-docs
+  swagger-ui:
+    path: /v1/swagger
+    disable-swagger-default-url: true
+    display-request-duration: true
+
 carsxe:
   base-url: ${CARSXE_BASE_URL:https://api.carsxe.com}
   api-key: ${CARSXE_API_KEY:}
@@ -21,6 +29,10 @@ carsxe:
 cardocs:
   security:
     api-key: ${CARDOCS_API_KEY:}
+    cognito:
+      region: ${CARDOCS_COGNITO_REGION:${AWS_REGION:us-east-1}}
+      user-pool-id: ${CARDOCS_COGNITO_USER_POOL_ID:}
+      app-client-id: ${CARDOCS_COGNITO_APP_CLIENT_ID:}
 
 aws:
   region: ${AWS_REGION:us-east-1}

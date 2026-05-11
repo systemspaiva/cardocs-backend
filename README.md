@@ -15,11 +15,14 @@ The backend uses the AWS SDK default credentials chain. In ECS/Fargate it should
 ```bash
 export AWS_REGION=us-east-1
 export CARDOCS_DYNAMODB_TABLE=cardocs-develop
+export CARDOCS_COGNITO_REGION=us-east-1
+export CARDOCS_COGNITO_USER_POOL_ID=<develop-user-pool-id>
+export CARDOCS_COGNITO_APP_CLIENT_ID=<develop-app-client-id>
 ```
 
 Do not commit AWS keys, service credentials, or CarsXE keys.
 
-Protected API endpoints fail closed unless `CARDOCS_API_KEY` is configured. Clients must send the key in `X-CarDocs-Api-Key`. `/v1/health` and public report URLs stay public.
+Protected API endpoints fail closed unless `CARDOCS_API_KEY` or Cognito are configured. Server-side clients can send `X-CarDocs-Api-Key` plus `X-CarDocs-Owner-Id`; the iOS app signs in through `/v1/auth/*`, sends `Authorization: Bearer <accessToken>`, and the backend uses the Cognito `sub` claim as the owner id. `/v1/health`, `/v1/auth/*`, and public report URLs stay public.
 
 DynamoDB single-table layout:
 
@@ -81,12 +84,30 @@ X-CarDocs-Api-Key: <configured-cardocs-api-key>
 X-CarDocs-Owner-Id: <stable-user-or-device-id>
 ```
 
+Mobile clients should use Cognito-backed auth instead:
+
+```http
+POST /v1/auth/sign-up
+POST /v1/auth/confirm-sign-up
+POST /v1/auth/resend-sign-up-code
+POST /v1/auth/sign-in
+POST /v1/auth/refresh
+POST /v1/auth/sign-out
+Authorization: Bearer <cognito-access-token>
+```
+
 `POST /v1/vehicles/image` and other non-public endpoints also require `X-CarDocs-Api-Key` so public traffic cannot burn CarsXE quota.
 
 ## API
 
 ```http
 GET /v1/health
+POST /v1/auth/sign-up
+POST /v1/auth/confirm-sign-up
+POST /v1/auth/resend-sign-up-code
+POST /v1/auth/sign-in
+POST /v1/auth/refresh
+POST /v1/auth/sign-out
 GET /v1/dashboard
 POST /v1/vehicles/plate-lookup
 POST /v1/vehicles/image
@@ -146,13 +167,15 @@ Terraform lives in `backend/terraform` and defines AWS resources:
 - DynamoDB single-table persistence
 - S3 bucket reserved for uploads
 - ECS/Fargate service
-- ALB and target group
+- API Gateway HTTP API with VPC Link
+- ALB and target group behind API Gateway
 - CloudWatch log group
 - IAM roles/policies
 - optional Secrets Manager injection for `CARSXE_API_KEY`
 - required Secrets Manager injection for `CARDOCS_API_KEY` on protected endpoints
+- Cognito User Pool and app client for native mobile authentication
 
-`allowed_cidr_blocks` defaults to an empty list, so the ALB has no public ingress until an environment explicitly opts in.
+The public HTTPS entrypoint is `terraform output api_base_url`. The ALB only accepts traffic from the API Gateway VPC Link security group.
 
 Validation:
 

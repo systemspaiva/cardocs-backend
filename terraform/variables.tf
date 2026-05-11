@@ -21,13 +21,8 @@ variable "vpc_id" {
   type        = string
 }
 
-variable "public_subnet_ids" {
-  description = "Public subnet ids for the load balancer."
-  type        = list(string)
-}
-
 variable "private_subnet_ids" {
-  description = "Private subnet ids for ECS tasks."
+  description = "Subnet ids for the internal load balancer, API Gateway VPC Link, and ECS tasks when task_subnet_ids is empty."
   type        = list(string)
 }
 
@@ -70,10 +65,4 @@ variable "cardocs_api_key_secret_arn" {
   description = "Secrets Manager ARN containing the CarDocs API key required by protected endpoints."
   type        = string
   default     = ""
-}
-
-variable "allowed_cidr_blocks" {
-  description = "CIDR blocks allowed to reach the public load balancer."
-  type        = list(string)
-  default     = []
 }
