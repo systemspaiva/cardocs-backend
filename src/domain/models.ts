@@ -22,6 +22,33 @@ export interface VehicleImage {
   source: string;
 }
 
+export interface VehicleFipeQuote {
+  code: string;
+  brand: string;
+  model: string;
+  modelYear: string;
+  fuel: string;
+  referenceMonth: string;
+  formattedValue: string;
+  value: number | null;
+}
+
+export interface VehiclePlateDetails {
+  alternatePlate?: string | null;
+  brandLogoURL?: string | null;
+  municipality?: string | null;
+  state?: string | null;
+  origin?: string | null;
+  situation?: string | null;
+  fuel?: string | null;
+  engineDisplacement?: string | null;
+  vehicleType?: string | null;
+  segment?: string | null;
+  subSegment?: string | null;
+  passengerCapacity?: string | null;
+  bodyType?: string | null;
+}
+
 export interface VehicleCandidate {
   id: string;
   kind: VehicleKind;
@@ -31,6 +58,8 @@ export interface VehicleCandidate {
   year: string;
   color: string;
   image?: VehicleImage | null;
+  fipe?: VehicleFipeQuote | null;
+  details?: VehiclePlateDetails | null;
 }
 
 export interface VehicleProfile extends VehicleCandidate {

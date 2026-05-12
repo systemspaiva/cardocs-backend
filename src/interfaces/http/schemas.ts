@@ -17,6 +17,33 @@ export const vehicleImageSchema = z.object({
   source: z.string().min(1)
 });
 
+export const vehicleFipeQuoteSchema = z.object({
+  code: z.string(),
+  brand: z.string(),
+  model: z.string(),
+  modelYear: z.string(),
+  fuel: z.string(),
+  referenceMonth: z.string(),
+  formattedValue: z.string(),
+  value: z.number().finite().nullable()
+});
+
+export const vehiclePlateDetailsSchema = z.object({
+  alternatePlate: z.string().nullable().optional(),
+  brandLogoURL: z.string().url().nullable().optional(),
+  municipality: z.string().nullable().optional(),
+  state: z.string().nullable().optional(),
+  origin: z.string().nullable().optional(),
+  situation: z.string().nullable().optional(),
+  fuel: z.string().nullable().optional(),
+  engineDisplacement: z.string().nullable().optional(),
+  vehicleType: z.string().nullable().optional(),
+  segment: z.string().nullable().optional(),
+  subSegment: z.string().nullable().optional(),
+  passengerCapacity: z.string().nullable().optional(),
+  bodyType: z.string().nullable().optional()
+});
+
 export const vehicleCandidateSchema = z.object({
   id: z.string().min(1),
   kind: z.string().transform(normalizeKind),
@@ -25,7 +52,9 @@ export const vehicleCandidateSchema = z.object({
   model: z.string().min(1),
   year: z.string().min(1),
   color: z.string().min(1),
-  image: vehicleImageSchema.nullable().optional()
+  image: vehicleImageSchema.nullable().optional(),
+  fipe: vehicleFipeQuoteSchema.nullable().optional(),
+  details: vehiclePlateDetailsSchema.nullable().optional()
 });
 
 export const vehicleRegistrationSchema = z.object({

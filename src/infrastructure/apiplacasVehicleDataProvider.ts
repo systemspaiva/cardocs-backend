@@ -1,7 +1,7 @@
 import { ExternalProviderError, NotFoundError, ProviderLimitExceededError, ProviderNotConfiguredError, ValidationError } from "../application/errors.js";
 import { VehiclePlateDataProvider } from "../application/vehiclePlateLookup.js";
 import { assertValidBrazilianPlate, deterministicUuid, normalizePlate } from "../domain/factories.js";
-import { VehicleCandidate, VehicleKind } from "../domain/models.js";
+import { VehicleCandidate, VehicleFipeQuote, VehicleKind, VehiclePlateDetails } from "../domain/models.js";
 
 interface ApiPlacasVehicleDataProviderOptions {
   token: string;
@@ -11,6 +11,7 @@ interface ApiPlacasVehicleDataProviderOptions {
 
 type ApiPlacasPayload = Record<string, unknown> & {
   extra?: Record<string, unknown>;
+  fipe?: Record<string, unknown>;
   message?: unknown;
   mensagemRetorno?: unknown;
 };
@@ -150,8 +151,56 @@ function toVehicleCandidate(requestPlate: string, payload: ApiPlacasPayload): Ve
     model,
     year,
     color,
-    image: null
+    image: null,
+    fipe: toFipeQuote(payload),
+    details: toPlateDetails(payload, extra)
   };
+}
+
+function toFipeQuote(payload: ApiPlacasPayload): VehicleFipeQuote | null {
+  const fipe = isRecord(payload.fipe) ? payload.fipe : {};
+  const data = Array.isArray(fipe.dados) ? fipe.dados.filter(isRecord) : [];
+  const bestMatch = data
+    .map((entry, index) => ({ entry, index, score: numberValue(entry.score) ?? 0 }))
+    .sort((left, right) => right.score - left.score || left.index - right.index)[0]?.entry;
+
+  if (!bestMatch) {
+    return null;
+  }
+
+  const formattedValue = firstString(bestMatch.texto_valor);
+  const quote: VehicleFipeQuote = {
+    code: firstString(bestMatch.codigo_fipe),
+    brand: firstString(bestMatch.texto_marca),
+    model: firstString(bestMatch.texto_modelo),
+    modelYear: firstString(bestMatch.ano_modelo),
+    fuel: firstString(bestMatch.combustivel, bestMatch.sigla_combustivel),
+    referenceMonth: firstString(bestMatch.mes_referencia),
+    formattedValue,
+    value: parseBrazilianCurrency(formattedValue)
+  };
+
+  return hasAnyValue(quote) ? quote : null;
+}
+
+function toPlateDetails(payload: ApiPlacasPayload, extra: Record<string, unknown>): VehiclePlateDetails | null {
+  const details: VehiclePlateDetails = {
+    alternatePlate: nullableString(payload.placa_alternativa, extra.placa_modelo_antigo),
+    brandLogoURL: nullableUrlString(payload.logo),
+    municipality: nullableString(payload.municipio, extra.municipio),
+    state: nullableString(payload.uf, extra.uf_placa, extra.uf),
+    origin: nullableString(payload.origem, extra.nacionalidade),
+    situation: nullableString(payload.situacao),
+    fuel: nullableString(extra.combustivel),
+    engineDisplacement: nullableString(extra.cilindradas),
+    vehicleType: nullableString(extra.tipo_veiculo, extra.especie),
+    segment: nullableString(extra.segmento),
+    subSegment: nullableString(extra.sub_segmento),
+    passengerCapacity: nullableString(extra.quantidade_passageiro),
+    bodyType: nullableString(extra.tipo_carroceria, extra.carroceria)
+  };
+
+  return hasAnyValue(details) ? details : null;
 }
 
 function detectVehicleKind(payload: ApiPlacasPayload, extra: Record<string, unknown>): VehicleKind {
@@ -180,6 +229,64 @@ function firstString(...values: unknown[]): string {
     }
   }
   return "";
+}
+
+function nullableString(...values: unknown[]): string | null {
+  return firstString(...values) || null;
+}
+
+function nullableUrlString(value: unknown): string | null {
+  const candidate = firstString(value);
+  if (!candidate) {
+    return null;
+  }
+
+  try {
+    const url = new URL(candidate);
+    return url.protocol === "https:" ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+function numberValue(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    return parseLocalizedNumber(value);
+  }
+
+  return null;
+}
+
+function parseBrazilianCurrency(value: string): number | null {
+  const normalized = value
+    .replace(/[^\d,.-]/g, "")
+    .trim();
+  const parsed = parseLocalizedNumber(normalized);
+  return parsed === null ? null : Math.round(parsed * 100) / 100;
+}
+
+function parseLocalizedNumber(value: string): number | null {
+  const normalized = value.trim();
+  if (!normalized) {
+    return null;
+  }
+
+  const lastComma = normalized.lastIndexOf(",");
+  const lastDot = normalized.lastIndexOf(".");
+  const decimalComma = lastComma > lastDot;
+  const standard = decimalComma ?
+    normalized.replace(/\./g, "").replace(",", ".") :
+    normalized.replace(/,/g, "");
+  const parsed = Number.parseFloat(standard);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function hasAnyValue(value: object): boolean {
+  return Object.values(value).some((item) => item !== null && item !== undefined && String(item).trim().length > 0);
 }
 
 function normalizeComparable(value: string): string {

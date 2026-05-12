@@ -103,7 +103,9 @@ export function toVehicleProfile(
     nextServiceTitle: "Primeira organizacao",
     nextServiceDistance: "Pronto para importar historico",
     statusTags: [options.plateVerified ? "Placa Verificada" : "Placa cadastrada"],
-    image: candidate.image ?? null
+    image: candidate.image ?? null,
+    fipe: candidate.fipe ?? null,
+    details: candidate.details ?? null
   };
 }
 
@@ -200,7 +202,9 @@ export function emptyDetectedVehicle(): VehicleCandidate {
     model: "",
     year: "",
     color: "",
-    image: null
+    image: null,
+    fipe: null,
+    details: null
   };
 }
 

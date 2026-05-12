@@ -5,8 +5,10 @@ import {
   InvestmentSummary,
   MaintenanceRecord,
   ResaleDossier,
+  VehicleFipeQuote,
   VehicleDashboard,
   VehicleGarage,
+  VehiclePlateDetails,
   VehicleProfile,
   VaultDocument
 } from "../domain/models.js";
@@ -216,8 +218,47 @@ function toVehicleProfile(value: unknown, fallbackId: string, options: { idOverr
     nextServiceTitle: stringValue(data?.nextServiceTitle, "Primeira organizacao"),
     nextServiceDistance: stringValue(data?.nextServiceDistance, "Pronto para importar historico"),
     statusTags: Array.isArray(data?.statusTags) ? data.statusTags.map(String) : ["Placa Verificada"],
-    image: data?.image ?? null
+    image: data?.image ?? null,
+    fipe: toVehicleFipeQuote(data?.fipe),
+    details: toVehiclePlateDetails(data?.details)
   };
+}
+
+function toVehicleFipeQuote(value: unknown): VehicleFipeQuote | null {
+  const data = value as Partial<VehicleFipeQuote> | undefined;
+  const quote: VehicleFipeQuote = {
+    code: stringValue(data?.code),
+    brand: stringValue(data?.brand),
+    model: stringValue(data?.model),
+    modelYear: stringValue(data?.modelYear),
+    fuel: stringValue(data?.fuel),
+    referenceMonth: stringValue(data?.referenceMonth),
+    formattedValue: stringValue(data?.formattedValue),
+    value: nullableNumberValue(data?.value)
+  };
+
+  return hasAnyValue(quote) ? quote : null;
+}
+
+function toVehiclePlateDetails(value: unknown): VehiclePlateDetails | null {
+  const data = value as Partial<VehiclePlateDetails> | undefined;
+  const details: VehiclePlateDetails = {
+    alternatePlate: nullableStringValue(data?.alternatePlate),
+    brandLogoURL: nullableHttpsUrlString(data?.brandLogoURL),
+    municipality: nullableStringValue(data?.municipality),
+    state: nullableStringValue(data?.state),
+    origin: nullableStringValue(data?.origin),
+    situation: nullableStringValue(data?.situation),
+    fuel: nullableStringValue(data?.fuel),
+    engineDisplacement: nullableStringValue(data?.engineDisplacement),
+    vehicleType: nullableStringValue(data?.vehicleType),
+    segment: nullableStringValue(data?.segment),
+    subSegment: nullableStringValue(data?.subSegment),
+    passengerCapacity: nullableStringValue(data?.passengerCapacity),
+    bodyType: nullableStringValue(data?.bodyType)
+  };
+
+  return hasAnyValue(details) ? details : null;
 }
 
 function toInvestmentSummary(value: unknown): InvestmentSummary {
@@ -306,10 +347,33 @@ function stringValue(value: unknown, fallback = ""): string {
   return typeof value === "string" ? value : fallback;
 }
 
+function nullableStringValue(value: unknown): string | null {
+  const text = stringValue(value).trim();
+  return text ? text : null;
+}
+
+function nullableHttpsUrlString(value: unknown): string | null {
+  const text = nullableStringValue(value);
+  if (!text) {
+    return null;
+  }
+
+  try {
+    const url = new URL(text);
+    return url.protocol === "https:" ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
 function numberValue(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
 function nullableNumberValue(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function hasAnyValue(value: object): boolean {
+  return Object.values(value).some((item) => item !== null && item !== undefined && String(item).trim().length > 0);
 }
