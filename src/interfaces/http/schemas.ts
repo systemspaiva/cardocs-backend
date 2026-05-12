@@ -9,6 +9,8 @@ const vehicleIDSchema = z.string().trim().min(1).transform((value) => value.toLo
 const documentIDSchema = z.string().trim().min(1);
 const optionalEditableTextSchema = z.string().trim().min(1).max(160).optional();
 const optionalNullableLongTextSchema = z.string().trim().max(2000).nullable().optional();
+const documentSourceSchema = z.enum(["cameraScan", "fileImport", "photoLibrary"]);
+const invoiceSourceSchema = z.enum(["cameraScan", "fileImport", "photoLibrary", "manualEntry"]);
 
 export const vehicleImageSchema = z.object({
   url: z.string().url(),
@@ -89,7 +91,7 @@ const invoiceDocumentContentSchema = z.object({
 });
 
 export const invoiceDocumentInputSchema = z.object({
-  source: z.enum(["cameraScan", "fileImport", "photoLibrary"]),
+  source: documentSourceSchema,
   displayName: z.string().min(1).max(160),
   ocrText: z.string().max(60000).optional(),
   pageCount: z.number().int().positive().max(20),
@@ -107,7 +109,7 @@ export const invoiceDocumentInputSchema = z.object({
 });
 
 const requiredDocumentInputSchema = z.object({
-  source: z.enum(["cameraScan", "fileImport", "photoLibrary"]),
+  source: documentSourceSchema,
   displayName: z.string().min(1).max(160),
   pageCount: z.number().int().positive().max(20),
   document: invoiceDocumentContentSchema
@@ -120,7 +122,7 @@ const documentAttachmentSchema = z.object({
   fileName: z.string().min(1),
   sizeBytes: z.number().int().positive(),
   pageCount: z.number().int().positive().max(20),
-  source: z.enum(["cameraScan", "fileImport", "photoLibrary"])
+  source: documentSourceSchema
 });
 
 export const maintenanceRecordSchema = z.object({
@@ -150,7 +152,7 @@ export const vaultDocumentSchema = z.object({
   supplierName: z.string().nullable().optional(),
   serviceTitle: z.string().nullable().optional(),
   purchaseSummary: z.string().nullable().optional(),
-  source: z.enum(["cameraScan", "fileImport", "photoLibrary"]).nullable().optional(),
+  source: invoiceSourceSchema.nullable().optional(),
   lineItems: z.array(z.lazy(() => invoiceLineItemSchema)).optional(),
   attachment: documentAttachmentSchema.nullable().optional()
 });
@@ -171,7 +173,7 @@ export const invoiceLineItemSchema = z.object({
 
 export const invoiceDraftSchema = z.object({
   id: z.string().min(1),
-  source: z.enum(["cameraScan", "fileImport", "photoLibrary"]),
+  source: invoiceSourceSchema,
   supplierName: z.string().min(1),
   serviceTitle: z.string().min(1),
   category: z.string().min(1),

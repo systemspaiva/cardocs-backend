@@ -412,7 +412,7 @@ function toVaultDocument(value: FirebaseFirestore.DocumentData, fallbackId: stri
     supplierName: stringValue(value.supplierName) || null,
     serviceTitle,
     purchaseSummary: stringValue(value.purchaseSummary, summarizePurchasedInvoiceLineItems(lineItems, serviceTitle ?? title)) || null,
-    source: value.source === "cameraScan" || value.source === "fileImport" || value.source === "photoLibrary" ? value.source : null,
+    source: value.source === "cameraScan" || value.source === "fileImport" || value.source === "photoLibrary" || value.source === "manualEntry" ? value.source : null,
     lineItems,
     attachment: toDocumentAttachment(value.attachment)
   };

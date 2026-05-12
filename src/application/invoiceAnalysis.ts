@@ -101,10 +101,14 @@ export class InvoiceAnalysisUseCase {
     const documentsAndTaxes = isDocumentOrTax ? draft.amount : 0;
     const purchaseSummary = summarizePurchasedItems(draft.lineItems, draft.serviceTitle);
     const documentID = deterministicUuid("vault-document", draft.id);
+    const isManualEntry = draft.source === "manualEntry";
+    const isAIValidated = !isManualEntry && draft.confidence >= 70;
 
     return {
       title: draft.serviceTitle,
-      message: "Nota fiscal lida pela IA e organizada no historico do veiculo.",
+      message: isManualEntry
+        ? "Nota fiscal lancada manualmente e organizada no historico do veiculo."
+        : "Nota fiscal lida pela IA e organizada no historico do veiculo.",
       investmentDelta: {
         total: draft.amount,
         maintenance,
@@ -117,7 +121,7 @@ export class InvoiceAnalysisUseCase {
         subtitle: purchaseSummary,
         date: draft.time ? `${draft.date} ${draft.time}` : draft.date,
         amount: draft.amount,
-        isAIValidated: draft.confidence >= 70,
+        isAIValidated,
         supplierName: draft.supplierName,
         serviceTitle: draft.serviceTitle,
         purchaseSummary,
@@ -128,7 +132,7 @@ export class InvoiceAnalysisUseCase {
         title: draft.serviceTitle,
         date: draft.time ? `${draft.date} ${draft.time}` : draft.date,
         amount: draft.amount,
-        status: draft.confidence >= 70 ? "Validado por IA" : "Validado pela leitura",
+        status: isManualEntry ? "Lancamento manual" : isAIValidated ? "Validado por IA" : "Validado pela leitura",
         kind: "expenseReceipt",
         documentType: isDocumentOrTax ? "Documento ou imposto" : "Nota fiscal",
         supplierName: draft.supplierName,

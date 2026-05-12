@@ -1,6 +1,7 @@
 export type VehicleKind = "car" | "motorcycle";
 export type PartHealthTone = "healthy" | "warning" | "neutral";
-export type InvoiceSource = "cameraScan" | "fileImport" | "photoLibrary";
+export type DocumentSource = "cameraScan" | "fileImport" | "photoLibrary";
+export type InvoiceSource = DocumentSource | "manualEntry";
 export type VaultDocumentKind = "expenseReceipt" | "vehicleDocument";
 
 export interface UserProfile {
@@ -127,7 +128,7 @@ export interface DocumentAttachment {
   fileName: string;
   sizeBytes: number;
   pageCount: number;
-  source: InvoiceSource;
+  source: DocumentSource;
 }
 
 export interface ResaleHighlight {
@@ -174,7 +175,7 @@ export interface VehicleDashboard {
 }
 
 export interface InvoiceDocumentInput {
-  source: InvoiceSource;
+  source: DocumentSource;
   displayName: string;
   ocrText?: string;
   pageCount: number;
