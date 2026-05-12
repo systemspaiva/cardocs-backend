@@ -63,7 +63,11 @@ Authorization: Bearer <Firebase ID token>
 
 `vehicles/image` consulta a CarsXE pelo backend quando `CARSXE_API_KEY` está configurada e retorna a melhor imagem real disponível para marca, modelo e ano. Quando a CarsXE não encontra imagens, a rota retorna `404` sem persistir dados fictícios no Firestore.
 
-`invoices/analyze` e `invoices` ainda não chamam provedores externos. Eles falham fechados, evitando persistir dados fictícios no Firestore.
+O app iOS envia imagem/PDF diretamente para o SDK Firebase AI Logic com backend `.googleAI()` para gerar a revisão estruturada com Gemini Developer API, sem embutir Gemini API key no bundle. A chamada usa limited-use App Check tokens e não depende de OCR local.
+
+`invoices/analyze` continua disponível como rota de compatibilidade para análise backend de texto/documento, mas o fluxo principal do app iOS não depende mais dela.
+
+`POST /v1/invoices` recebe `vehicleID` e o `draft` estruturado pela Firebase AI Logic no app. O backend valida o schema do draft, gera o `AutomationResult` no servidor e só então persiste o histórico/cofre no Firestore.
 
 ## Firestore
 
@@ -110,6 +114,19 @@ export CARSXE_BASE_URL="https://api.carsxe.com"
 ```
 
 Não versione nem imprima a chave da CarsXE. Em deploy, configure esse valor como secret/variável protegida do ambiente.
+
+Extração de notas com Google AI/Gemini:
+
+```bash
+export GEMINI_INVOICE_EXTRACTION_ENABLED="true"
+export GOOGLE_AI_API_KEY="<chave configurada fora do repositorio>"
+export GEMINI_INVOICE_MODEL="gemini-3-flash-preview"
+export GEMINI_INVOICE_TIMEOUT_MS="30000"
+```
+
+`GEMINI_API_KEY` também é aceito como fallback. Não versione nem imprima a chave do Gemini. O app faz OCR local no iOS e envia apenas o texto reconhecido para baratear a chamada de IA; o backend aplica redaction básica de CPF/CNPJ/chave de acesso/contatos antes da chamada externa.
+
+Os scripts de deploy bloqueiam execução fora do alvo `develop` e fora da branch `develop`. Enquanto o repositório local estiver em `main`, eles não publicam.
 
 Auditoria remota de prontidao do Firebase/Auth, sem imprimir valores sensiveis:
 

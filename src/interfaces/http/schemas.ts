@@ -1,6 +1,12 @@
 import { z } from "zod";
 import { normalizeKind } from "../../domain/factories.js";
 
+const moneyNumberSchema = z.coerce.number().finite();
+const positiveMoneyNumberSchema = moneyNumberSchema.positive();
+const nonNegativeIntegerSchema = z.coerce.number().int().min(0);
+const confidenceSchema = z.coerce.number().int().min(0).max(100);
+const vehicleIDSchema = z.string().trim().min(1).transform((value) => value.toLowerCase());
+
 export const vehicleImageSchema = z.object({
   url: z.string().url(),
   thumbnailUrl: z.string().url().nullable().optional(),
@@ -39,7 +45,31 @@ export const vehicleImageLookupSchema = z.object({
 
 export const invoiceDocumentInputSchema = z.object({
   source: z.enum(["cameraScan", "fileImport", "photoLibrary"]),
-  displayName: z.string().min(1)
+  displayName: z.string().min(1).max(160),
+  ocrText: z.string().max(60000).optional(),
+  pageCount: z.number().int().positive().max(20),
+  document: z.object({
+    mimeType: z.enum([
+      "application/pdf",
+      "image/jpeg",
+      "image/png",
+      "image/tiff",
+      "image/gif",
+      "image/bmp",
+      "image/webp"
+    ]),
+    base64Data: z.string().min(16).max(20_000_000)
+  }).nullable().optional()
+}).superRefine((input, context) => {
+  const hasOCRText = (input.ocrText ?? "").trim().length >= 16;
+  const hasDocument = Boolean(input.document?.base64Data);
+  if (!hasOCRText && !hasDocument) {
+    context.addIssue({
+      code: "custom",
+      path: ["ocrText"],
+      message: "Informe texto de OCR ou documento para leitura."
+    });
+  }
 });
 
 export const maintenanceRecordSchema = z.object({
@@ -48,22 +78,36 @@ export const maintenanceRecordSchema = z.object({
   title: z.string(),
   subtitle: z.string(),
   date: z.string(),
-  amount: z.number(),
-  isAIValidated: z.boolean()
+  amount: moneyNumberSchema,
+  isAIValidated: z.boolean(),
+  supplierName: z.string().nullable().optional(),
+  serviceTitle: z.string().nullable().optional(),
+  purchaseSummary: z.string().nullable().optional()
 });
 
 export const vaultDocumentSchema = z.object({
   id: z.string().min(1),
   title: z.string(),
   date: z.string(),
-  amount: z.number(),
-  status: z.string()
+  amount: moneyNumberSchema,
+  status: z.string(),
+  supplierName: z.string().nullable().optional(),
+  serviceTitle: z.string().nullable().optional(),
+  purchaseSummary: z.string().nullable().optional()
 });
 
 export const investmentDeltaSchema = z.object({
-  total: z.number(),
-  maintenance: z.number(),
-  documentsAndTaxes: z.number()
+  total: moneyNumberSchema,
+  maintenance: moneyNumberSchema,
+  documentsAndTaxes: moneyNumberSchema
+});
+
+export const invoiceLineItemSchema = z.object({
+  id: z.string().min(1),
+  description: z.string().min(1),
+  quantity: positiveMoneyNumberSchema.nullable().optional(),
+  unitAmount: positiveMoneyNumberSchema.nullable().optional(),
+  totalAmount: positiveMoneyNumberSchema
 });
 
 export const invoiceDraftSchema = z.object({
@@ -73,14 +117,16 @@ export const invoiceDraftSchema = z.object({
   serviceTitle: z.string().min(1),
   category: z.string().min(1),
   date: z.string().min(1),
-  amount: z.number(),
-  mileage: z.number().int().min(0),
-  confidence: z.number().int().min(0).max(100),
+  time: z.string().nullable().optional(),
+  amount: positiveMoneyNumberSchema,
+  mileage: nonNegativeIntegerSchema,
+  confidence: confidenceSchema,
+  lineItems: z.array(invoiceLineItemSchema).default([]),
   extractedFields: z.array(z.object({
     id: z.string().min(1),
     label: z.string(),
     value: z.string(),
-    confidence: z.number().int().min(0).max(100)
+    confidence: confidenceSchema
   })),
   healthImpacts: z.array(z.object({
     id: z.string().min(1),
@@ -91,10 +137,10 @@ export const invoiceDraftSchema = z.object({
 });
 
 export const saveInvoiceSchema = z.object({
-  vehicleID: z.string().min(1),
+  vehicleID: vehicleIDSchema,
   draft: invoiceDraftSchema
 });
 
 export const resaleDossierRequestSchema = z.object({
-  vehicleID: z.string().min(1)
+  vehicleID: vehicleIDSchema
 });

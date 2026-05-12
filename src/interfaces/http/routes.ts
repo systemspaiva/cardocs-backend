@@ -6,10 +6,11 @@ import {
 } from "../../domain/factories.js";
 import { ResaleDossier } from "../../domain/models.js";
 import { VehicleImageLookupUseCase, VehicleImageProvider } from "../../application/vehicleImageLookup.js";
+import { InvoiceAnalysisUseCase, InvoiceDocumentExtractionProvider, InvoiceExtractionProvider } from "../../application/invoiceAnalysis.js";
 import { VehiclePlateDataProvider, VehiclePlateLookupUseCase } from "../../application/vehiclePlateLookup.js";
 import { FirebaseGarageRepository } from "../../infrastructure/firebaseGarageRepository.js";
 import { FirebaseUserRepository } from "../../infrastructure/firebaseUserRepository.js";
-import { ProviderNotConfiguredError, UnauthorizedError } from "../../application/errors.js";
+import { UnauthorizedError } from "../../application/errors.js";
 import {
   invoiceDocumentInputSchema,
   plateLookupSchema,
@@ -28,11 +29,14 @@ export function createRouter(
   repository: FirebaseGarageRepository,
   userRepository: FirebaseUserRepository,
   vehiclePlateProvider: VehiclePlateDataProvider | null = null,
-  vehicleImageProvider: VehicleImageProvider | null = null
+  vehicleImageProvider: VehicleImageProvider | null = null,
+  invoiceExtractionProvider: InvoiceExtractionProvider | null = null,
+  invoiceDocumentExtractionProvider: InvoiceDocumentExtractionProvider | null = null
 ): Router {
   const router = Router();
   const plateLookup = new VehiclePlateLookupUseCase(vehiclePlateProvider);
   const imageLookup = new VehicleImageLookupUseCase(vehicleImageProvider);
+  const invoiceAnalysis = new InvoiceAnalysisUseCase(invoiceExtractionProvider, invoiceDocumentExtractionProvider);
 
   router.get("/v1/health", (_request, response) => {
     response.json({ status: "UP", runtime: "node" });
@@ -82,14 +86,15 @@ export function createRouter(
     response.status(201).json(await repository.saveVehicle(requireOwnerId(request), vehicle));
   }));
 
-  router.post("/v1/invoices/analyze", asyncHandler(async (request, _response) => {
-    invoiceDocumentInputSchema.parse(request.body);
-    throw new ProviderNotConfiguredError("Provider real de OCR/IA ainda nao esta configurado.");
+  router.post("/v1/invoices/analyze", asyncHandler(async (request, response) => {
+    const body = invoiceDocumentInputSchema.parse(request.body);
+    response.json(await invoiceAnalysis.analyze(body));
   }));
 
-  router.post("/v1/invoices", asyncHandler(async (request: AuthenticatedRequest, _response) => {
-    saveInvoiceSchema.parse(request.body);
-    throw new ProviderNotConfiguredError("Provider real de OCR/IA ainda nao esta configurado para salvar documentos.");
+  router.post("/v1/invoices", asyncHandler(async (request: AuthenticatedRequest, response) => {
+    const body = saveInvoiceSchema.parse(request.body);
+    const result = invoiceAnalysis.toAutomationResult(body.draft);
+    response.status(201).json(await repository.saveAutomationResult(requireOwnerId(request), body.vehicleID, result));
   }));
 
   router.post("/v1/resale-dossiers", asyncHandler(async (request: AuthenticatedRequest, response) => {

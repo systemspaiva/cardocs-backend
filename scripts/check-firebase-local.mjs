@@ -76,6 +76,7 @@ report("NODE_START_SCRIPT", packageJson?.scripts?.start === "node lib/index.js")
 report("NODE_CLOUD_RUN_DEPLOY_SCRIPT", packageJson?.scripts?.["deploy:run"] === "sh scripts/deploy-cloud-run.sh");
 report("NODE_FIREBASE_HOSTING_DEPLOY_SCRIPT", packageJson?.scripts?.["deploy:hosting"] === "sh scripts/deploy-firebase-hosting.sh");
 report("NODE_DEPLOY_REQUIRES_APPROVAL", read("scripts/deploy-cloud-run.sh").includes("CARDOCS_ALLOW_DEPLOY") && read("scripts/deploy-firebase-hosting.sh").includes("CARDOCS_ALLOW_DEPLOY"));
+report("NODE_DEPLOY_DEVELOP_ONLY", read("scripts/deploy-cloud-run.sh").includes("CARDOCS_DEPLOY_TARGET") && read("scripts/deploy-firebase-hosting.sh").includes("hosting:channel:deploy develop"));
 report("NODE_NO_FIREBASE_FUNCTIONS_DEPENDENCY", !packageJson?.dependencies?.["firebase-functions"]);
 report("NODE_REMOTE_READINESS_SCRIPT", Boolean(packageJson?.scripts?.["check:firebase-readiness"]));
 report("NODE_REMOTE_DEPLOY_READINESS_SCRIPT", Boolean(packageJson?.scripts?.["check:firebase-deploy-readiness"]));
@@ -86,14 +87,27 @@ report("NODE_LISTENS_ON_PORT", server.includes("process.env.PORT") && server.inc
 report("NODE_NO_FUNCTIONS_ONREQUEST", !server.includes("onRequest") && !server.includes("firebase-functions"));
 
 const routes = read("src/interfaces/http/routes.ts");
+const schemas = read("src/interfaces/http/schemas.ts");
 const plateProvider = read("src/infrastructure/apiplacasVehicleDataProvider.ts");
+const invoiceUseCase = read("src/application/invoiceAnalysis.ts");
+const geminiProvider = read("src/infrastructure/geminiInvoiceExtractionProvider.ts");
 report("API_HEALTH_ROUTE", routes.includes("/v1/health"));
 report("API_FIREBASE_AUTH_VERIFICATION", routes.includes("verifyIdToken"));
 report("API_INVALID_TOKEN_RETURNS_UNAUTHORIZED", routes.includes("Firebase ID token invalido ou expirado"));
 report("API_PUBLIC_REPORT_ROUTE", routes.includes("/r/:slug"));
 report("API_PLATE_LOOKUP_USES_APIPLACAS_PROVIDER", routes.includes("plateLookup.lookup(body.plate)") && plateProvider.includes("APIPLACAS_TOKEN") && plateProvider.includes("https://wdapi2.com.br"));
 report("API_VEHICLE_REGISTRATION_REVALIDATES_PLATE", routes.includes("await plateLookup.lookup(body.plate)") && routes.includes("plateVerified: true"));
-report("API_PROVIDER_CALLS_FAIL_CLOSED", routes.includes("Provider real de OCR/IA ainda nao esta configurado.") && routes.includes("Provider real de OCR/IA ainda nao esta configurado para salvar documentos."));
+report("API_INVOICE_ANALYSIS_USES_OCR_TEXT", routes.includes("invoiceAnalysis.analyze(body)") && invoiceUseCase.includes("ocrText.length"));
+report(
+  "API_INVOICE_GEMINI_DOCUMENT_DIRECT",
+  invoiceUseCase.includes("documentExtractionProvider.extractFromDocument") &&
+    geminiProvider.includes("extractFromDocument") &&
+    geminiProvider.includes("inline_data") &&
+    !invoiceUseCase.includes("ocrProvider.recognize")
+);
+report("API_INVOICE_GEMINI_EXPLICITLY_ENABLED", geminiProvider.includes("GEMINI_INVOICE_EXTRACTION_ENABLED") && geminiProvider.includes("GOOGLE_AI_API_KEY") && geminiProvider.includes("GEMINI_API_KEY") && geminiProvider.includes("generativelanguage.googleapis.com"));
+report("API_INVOICE_SAVE_ACCEPTS_FIREBASE_AI_DRAFT", routes.includes("invoiceAnalysis.toAutomationResult(body.draft)") && schemas.includes("draft: invoiceDraftSchema"));
+report("API_INVOICE_SAVE_PERSISTS_AUTOMATION_RESULT", routes.includes("saveAutomationResult(requireOwnerId(request), body.vehicleID, result)"));
 
 const repository = read("src/infrastructure/firebaseGarageRepository.ts");
 report("FIRESTORE_REPOSITORY", repository.includes("collection(\"users\")") && repository.includes("collection(\"vehicles\")"));
@@ -102,10 +116,14 @@ report("PUBLIC_REPORT_SLUG_OWNER_SCOPED", read("src/domain/factories.ts").includ
 
 const iosInfo = read("cardocs/Info.plist", iosDir);
 report("IOS_API_BASE_URL_FIREBASE_HOSTING", /https:\/\/cardocs-app(?:--[a-z0-9-]+)?\.web\.app/.test(iosInfo));
+report("IOS_GEMINI_MODEL_CONFIGURED", iosInfo.includes("CARDOCS_GEMINI_MODEL"));
+report("IOS_FIREBASE_AI_KILL_SWITCH_CONFIGURED", iosInfo.includes("CARDOCS_FIREBASE_AI_ENABLED"));
 report("IOS_GOOGLE_CALLBACK_BASE_SCHEME", iosInfo.includes("<string>cardocs</string>"));
+report("IOS_INVOICE_CAPTURE_PERMISSIONS", iosInfo.includes("NSCameraUsageDescription") && iosInfo.includes("NSPhotoLibraryUsageDescription"));
 
 const iosApp = read("cardocs/cardocsApp.swift", iosDir);
 report("IOS_FIREBASE_APP_CONFIGURE", iosApp.includes("FirebaseApp.configure()"));
+report("IOS_FIREBASE_APP_CHECK_CONFIGURE", iosApp.includes("AppCheck.setAppCheckProviderFactory"));
 report("IOS_GOOGLE_OPEN_URL_HANDLER", iosApp.includes("GIDSignIn.sharedInstance.handle(url)"));
 
 const remoteAuth = read("cardocs/Data/RemoteAuthRepository.swift", iosDir);
@@ -116,6 +134,15 @@ report("IOS_FIREBASE_ID_TOKEN_PROVIDER", remoteAuth.includes("getIDToken"));
 
 const remoteVehicle = read("cardocs/Data/RemoteVehicleRepository.swift", iosDir);
 report("IOS_API_RETRIES_401_WITH_REFRESH", remoteVehicle.includes("statusCode == 401") && remoteVehicle.includes("forceRefresh: true"));
+const iosInvoiceFlow = read("cardocs/Presentation/ViewModels/CarDocsViewModel.swift", iosDir);
+report(
+  "IOS_INVOICE_ANALYSIS_USES_FIREBASE_AI_DOCUMENT_UPLOAD",
+  iosInvoiceFlow.includes("DefaultInvoiceDocumentPreparer") &&
+    iosInvoiceFlow.includes("document: preparedDocument.content") &&
+    iosInvoiceFlow.includes("invoiceDraftAnalyzer.analyze(input)") &&
+    !iosInvoiceFlow.includes("repository.analyzeInvoice(input)") &&
+    remoteVehicle.includes("draft: draft")
+);
 report("IOS_NO_MOCK_REPOSITORIES", !existsSync(path.resolve(iosDir, "cardocs/Data/MockAuthRepository.swift")) && !existsSync(path.resolve(iosDir, "cardocs/Data/MockVehicleRepository.swift")));
 
 const entitlements = read("cardocs/cardocs.entitlements", iosDir);

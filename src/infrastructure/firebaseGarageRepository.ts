@@ -1,6 +1,7 @@
 import { FieldValue, Firestore, Timestamp } from "firebase-admin/firestore";
 import {
   AutomationResult,
+  InvoiceLineItem,
   InvestmentSummary,
   MaintenanceRecord,
   ResaleDossier,
@@ -64,7 +65,8 @@ export class FirebaseGarageRepository {
   }
 
   async findGarage(ownerId: string, vehicleId: string): Promise<VehicleGarage> {
-    const snapshot = await this.vehicleRef(ownerId, vehicleId).get();
+    const vehicleRef = await this.resolveVehicleRef(ownerId, vehicleId);
+    const snapshot = await vehicleRef.get();
     if (!snapshot.exists) {
       throw new NotFoundError("Veiculo nao encontrado.");
     }
@@ -72,7 +74,7 @@ export class FirebaseGarageRepository {
   }
 
   async saveAutomationResult(ownerId: string, vehicleId: string, result: AutomationResult): Promise<AutomationResult> {
-    const vehicleRef = this.vehicleRef(ownerId, vehicleId);
+    const vehicleRef = await this.resolveVehicleRef(ownerId, vehicleId);
     const timelineRef = vehicleRef.collection("timeline").doc(result.record.id);
     const documentsRef = vehicleRef.collection("vaultDocuments").doc(result.document.id);
 
@@ -110,13 +112,13 @@ export class FirebaseGarageRepository {
   }
 
   async upsertResaleDossier(ownerId: string, vehicleId: string, dossier: ResaleDossier): Promise<ResaleDossier> {
-    const vehicleRef = this.vehicleRef(ownerId, vehicleId);
+    const vehicleRef = await this.resolveVehicleRef(ownerId, vehicleId);
     const vehicleDoc = await vehicleRef.get();
     if (!vehicleDoc.exists) {
       throw new NotFoundError("Veiculo nao encontrado.");
     }
 
-    const vehicle = toVehicleProfile(vehicleDoc.data()?.vehicle, vehicleId);
+    const vehicle = toVehicleProfile(vehicleDoc.data()?.vehicle, vehicleDoc.id, { idOverride: vehicleDoc.id });
     const slug = publicReportSlug(vehicle);
     await Promise.all([
       vehicleRef.collection("dossiers").doc("current").set(withTimestamps(dossier, false), { merge: true }),
@@ -134,7 +136,7 @@ export class FirebaseGarageRepository {
   }
 
   private async loadGarageFromVehicleDoc(ownerId: string, vehicleId: string, data: FirebaseFirestore.DocumentData): Promise<VehicleGarage> {
-    const vehicle = toVehicleProfile(data.vehicle, vehicleId);
+    const vehicle = toVehicleProfile(data.vehicle, vehicleId, { idOverride: vehicleId });
     const [timelineSnapshot, documentSnapshot, dossierSnapshot] = await Promise.all([
       this.vehicleRef(ownerId, vehicleId).collection("timeline").orderBy("createdAt", "desc").get(),
       this.vehicleRef(ownerId, vehicleId).collection("vaultDocuments").orderBy("createdAt", "desc").get(),
@@ -144,7 +146,7 @@ export class FirebaseGarageRepository {
     const timeline = timelineSnapshot.docs.map((doc) => toMaintenanceRecord(doc.data(), doc.id));
     const vaultDocuments = documentSnapshot.docs.map((doc) => toVaultDocument(doc.data(), doc.id));
     const garageBase = {
-      id: vehicle.id,
+      id: vehicleId,
       vehicle,
       investment: toInvestmentSummary(data.investment),
       timeline,
@@ -157,6 +159,30 @@ export class FirebaseGarageRepository {
       ...garageBase,
       resaleDossier: dossierSnapshot.exists ? toResaleDossier(dossierSnapshot.data()) : garageBase.resaleDossier
     };
+  }
+
+  private async resolveVehicleRef(ownerId: string, vehicleId: string): Promise<FirebaseFirestore.DocumentReference> {
+    const normalizedVehicleId = vehicleId.trim().toLowerCase();
+    const directRef = this.vehicleRef(ownerId, normalizedVehicleId);
+    const directSnapshot = await directRef.get();
+    if (directSnapshot.exists) {
+      return directRef;
+    }
+
+    const legacySnapshot = await this.db
+      .collection("users")
+      .doc(ownerId)
+      .collection("vehicles")
+      .where("vehicle.id", "==", normalizedVehicleId)
+      .limit(1)
+      .get();
+
+    const legacyDoc = legacySnapshot.docs[0];
+    if (!legacyDoc) {
+      throw new NotFoundError("Veiculo nao encontrado.");
+    }
+
+    return legacyDoc.ref;
   }
 
   private vehicleRef(ownerId: string, vehicleId: string) {
@@ -175,10 +201,10 @@ function withTimestamps<T extends object>(
   };
 }
 
-function toVehicleProfile(value: unknown, fallbackId: string): VehicleProfile {
+function toVehicleProfile(value: unknown, fallbackId: string, options: { idOverride?: string } = {}): VehicleProfile {
   const data = value as Partial<VehicleProfile> | undefined;
   return {
-    id: stringValue(data?.id, fallbackId),
+    id: options.idOverride ?? stringValue(data?.id, fallbackId),
     kind: data?.kind === "motorcycle" ? "motorcycle" : "car",
     plate: stringValue(data?.plate),
     maskedPlate: stringValue(data?.maskedPlate),
@@ -204,24 +230,61 @@ function toInvestmentSummary(value: unknown): InvestmentSummary {
 }
 
 function toMaintenanceRecord(value: FirebaseFirestore.DocumentData, fallbackId: string): MaintenanceRecord {
+  const title = stringValue(value.title);
+  const subtitle = stringValue(value.subtitle);
+  const supplierName = stringValue(value.supplierName, subtitle) || null;
+  const serviceTitle = stringValue(value.serviceTitle, title) || null;
   return {
     id: stringValue(value.id, fallbackId),
     iconName: stringValue(value.iconName),
-    title: stringValue(value.title),
-    subtitle: stringValue(value.subtitle),
+    title,
+    subtitle,
     date: stringValue(value.date),
     amount: numberValue(value.amount),
-    isAIValidated: Boolean(value.isAIValidated)
+    isAIValidated: Boolean(value.isAIValidated),
+    supplierName,
+    serviceTitle,
+    purchaseSummary: stringValue(value.purchaseSummary, serviceTitle ?? title) || null
   };
 }
 
 function toVaultDocument(value: FirebaseFirestore.DocumentData, fallbackId: string): VaultDocument {
+  const title = stringValue(value.title);
+  const serviceTitle = stringValue(value.serviceTitle, title) || null;
+  const lineItems = Array.isArray(value.lineItems) ? value.lineItems.map(toInvoiceLineItem) : [];
   return {
     id: stringValue(value.id, fallbackId),
-    title: stringValue(value.title),
+    title,
     date: stringValue(value.date),
     amount: numberValue(value.amount),
-    status: stringValue(value.status)
+    status: stringValue(value.status),
+    supplierName: stringValue(value.supplierName) || null,
+    serviceTitle,
+    purchaseSummary: stringValue(value.purchaseSummary, summarizePurchasedInvoiceLineItems(lineItems, serviceTitle ?? title)) || null,
+    source: value.source === "cameraScan" || value.source === "fileImport" || value.source === "photoLibrary" ? value.source : null,
+    lineItems
+  };
+}
+
+function summarizePurchasedInvoiceLineItems(items: InvoiceLineItem[], fallback: string): string {
+  const descriptions = items
+    .map((item) => stringValue(item.description).split(/\s+/).join(" ").trim())
+    .filter(Boolean)
+    .filter((value, index, all) => all.findIndex((candidate) => candidate.toLowerCase() === value.toLowerCase()) === index);
+
+  if (descriptions.length === 0) return fallback;
+  if (descriptions.length === 1) return descriptions[0];
+  if (descriptions.length === 2) return `${descriptions[0]} e ${descriptions[1]}`.slice(0, 120);
+  return `${descriptions[0]}, ${descriptions[1]} e mais ${descriptions.length - 2} itens`.slice(0, 120);
+}
+
+function toInvoiceLineItem(value: FirebaseFirestore.DocumentData): InvoiceLineItem {
+  return {
+    id: stringValue(value.id),
+    description: stringValue(value.description),
+    quantity: nullableNumberValue(value.quantity),
+    unitAmount: nullableNumberValue(value.unitAmount),
+    totalAmount: numberValue(value.totalAmount)
   };
 }
 
@@ -245,4 +308,8 @@ function stringValue(value: unknown, fallback = ""): string {
 
 function numberValue(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function nullableNumberValue(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }

@@ -55,6 +55,9 @@ export interface MaintenanceRecord {
   date: string;
   amount: number;
   isAIValidated: boolean;
+  supplierName?: string | null;
+  serviceTitle?: string | null;
+  purchaseSummary?: string | null;
 }
 
 export interface PartHealth {
@@ -74,6 +77,11 @@ export interface VaultDocument {
   date: string;
   amount: number;
   status: string;
+  supplierName?: string | null;
+  serviceTitle?: string | null;
+  purchaseSummary?: string | null;
+  source?: InvoiceSource | null;
+  lineItems?: InvoiceLineItem[];
 }
 
 export interface ResaleHighlight {
@@ -122,6 +130,22 @@ export interface VehicleDashboard {
 export interface InvoiceDocumentInput {
   source: InvoiceSource;
   displayName: string;
+  ocrText?: string;
+  pageCount: number;
+  document?: InvoiceDocumentContent | null;
+}
+
+export interface InvoiceDocumentContent {
+  mimeType: string;
+  base64Data: string;
+}
+
+export interface InvoiceLineItem {
+  id: string;
+  description: string;
+  quantity?: number | null;
+  unitAmount?: number | null;
+  totalAmount: number;
 }
 
 export interface InvoiceExtractedField {
@@ -145,9 +169,11 @@ export interface InvoiceScanDraft {
   serviceTitle: string;
   category: string;
   date: string;
+  time?: string | null;
   amount: number;
   mileage: number;
   confidence: number;
+  lineItems: InvoiceLineItem[];
   extractedFields: InvoiceExtractedField[];
   healthImpacts: InvoiceHealthImpact[];
 }
