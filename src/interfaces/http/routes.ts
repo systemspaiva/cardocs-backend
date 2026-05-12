@@ -2,6 +2,7 @@ import { NextFunction, Request, Response, Router } from "express";
 import { randomUUID } from "crypto";
 import { getAuth, type DecodedIdToken, type UserRecord } from "firebase-admin/auth";
 import { DocumentAttachmentStore } from "../../application/documentAttachments.js";
+import { DeleteAccountUseCase } from "../../application/accountDeletion.js";
 import {
   generateResaleDossier,
   toVehicleProfile
@@ -33,6 +34,7 @@ interface AuthenticatedRequest extends Request {
 export function createRouter(
   repository: FirebaseGarageRepository,
   userRepository: FirebaseUserRepository,
+  accountDeletion: DeleteAccountUseCase,
   vehiclePlateProvider: VehiclePlateDataProvider | null = null,
   vehicleImageProvider: VehicleImageProvider | null = null,
   invoiceExtractionProvider: InvoiceExtractionProvider | null = null,
@@ -63,6 +65,11 @@ export function createRouter(
     const authToken = requireAuthToken(request);
     const userRecord = await getAuth().getUser(authToken.uid);
     response.json(await userRepository.upsertFromAuth(toUserProfile(authToken, userRecord)));
+  }));
+
+  router.delete("/v1/me", asyncHandler(async (request: AuthenticatedRequest, response) => {
+    await accountDeletion.deleteAccount(requireOwnerId(request));
+    response.status(204).send();
   }));
 
   router.get("/v1/dashboard", asyncHandler(async (request: AuthenticatedRequest, response) => {

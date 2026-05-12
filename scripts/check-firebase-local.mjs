@@ -85,10 +85,18 @@ const schemas = read("src/interfaces/http/schemas.ts");
 const plateProvider = read("src/infrastructure/apiplacasVehicleDataProvider.ts");
 const invoiceUseCase = read("src/application/invoiceAnalysis.ts");
 const geminiProvider = read("src/infrastructure/geminiInvoiceExtractionProvider.ts");
+const accountDeletionUseCase = read("src/application/accountDeletion.ts");
+const accountDataStore = read("src/infrastructure/firebaseAccountDataStore.ts");
+const accountAuthStore = read("src/infrastructure/firebaseAccountAuthStore.ts");
 report("API_HEALTH_ROUTE", routes.includes("/v1/health"));
 report("API_FIREBASE_AUTH_VERIFICATION", routes.includes("verifyIdToken"));
 report("API_INVALID_TOKEN_RETURNS_UNAUTHORIZED", routes.includes("Firebase ID token invalido ou expirado"));
 report("API_PUBLIC_REPORT_ROUTE", routes.includes("/r/:slug"));
+report("API_ACCOUNT_DELETE_ROUTE", routes.includes("router.delete(\"/v1/me\"") && routes.includes("accountDeletion.deleteAccount(requireOwnerId(request))"));
+report("API_ACCOUNT_DELETE_REMOVES_DATA_FIRST", accountDeletionUseCase.includes("deleteAllForUser(ownerId)") && accountDeletionUseCase.indexOf("deleteAllForUser(ownerId)") < accountDeletionUseCase.indexOf("deleteUser(ownerId)"));
+report("API_ACCOUNT_DELETE_REMOVES_FIRESTORE", accountDataStore.includes("recursiveDelete(userRef)") && accountDataStore.includes("collection(\"publicReports\")"));
+report("API_ACCOUNT_DELETE_REMOVES_STORAGE", accountDataStore.includes("deleteFiles") && accountDataStore.includes("prefix: `users/${sanitizePathSegment(ownerId)}/`"));
+report("API_ACCOUNT_DELETE_REMOVES_AUTH_USER", accountAuthStore.includes("deleteUser(ownerId)") && accountAuthStore.includes("auth/user-not-found"));
 report("API_PLATE_LOOKUP_USES_APIPLACAS_PROVIDER", routes.includes("plateLookup.lookup(body.plate)") && plateProvider.includes("APIPLACAS_TOKEN") && plateProvider.includes("https://wdapi2.com.br"));
 report("API_VEHICLE_REGISTRATION_REVALIDATES_PLATE", routes.includes("await plateLookup.lookup(body.plate)") && routes.includes("plateVerified: true"));
 report("API_INVOICE_ANALYSIS_USES_OCR_TEXT", routes.includes("invoiceAnalysis.analyze(body)") && invoiceUseCase.includes("ocrText.length"));
@@ -126,6 +134,13 @@ report("IOS_EMAIL_PASSWORD_AUTH", remoteAuth.includes("signIn(") && remoteAuth.i
 report("IOS_APPLE_AUTH", remoteAuth.includes("OAuthProvider.appleCredential"));
 report("IOS_GOOGLE_AUTH", remoteAuth.includes("GoogleAuthProvider.credential"));
 report("IOS_FIREBASE_ID_TOKEN_PROVIDER", remoteAuth.includes("getIDToken"));
+report("IOS_ACCOUNT_DELETE_CALLS_BACKEND", remoteAuth.includes("deleteAccountAndData()") && remoteAuth.includes("deleteNoResponseThrowing(\"/v1/me\""));
+
+const appView = read("cardocs/Presentation/Views/CarDocsAppView.swift", iosDir);
+const flowSheets = read("cardocs/Presentation/Views/CarDocsFlowSheets.swift", iosDir);
+report("IOS_PROFILE_OPENS_ACCOUNT_SHEET", appView.includes("isShowingAccountSheet = true") && appView.includes("AccountOptionsSheet"));
+report("IOS_ACCOUNT_SHEET_HAS_SIGN_OUT", flowSheets.includes("Sair da conta") && appView.includes("onSignOut()"));
+report("IOS_ACCOUNT_SHEET_HAS_DELETE_CONFIRMATION", flowSheets.includes("Apagar conta e todos os dados") && flowSheets.includes("uppercased() == \"APAGAR\""));
 
 const remoteVehicle = read("cardocs/Data/RemoteVehicleRepository.swift", iosDir);
 report("IOS_API_RETRIES_401_WITH_REFRESH", remoteVehicle.includes("statusCode == 401") && remoteVehicle.includes("forceRefresh: true"));

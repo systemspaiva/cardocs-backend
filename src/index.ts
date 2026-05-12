@@ -5,10 +5,13 @@ import { ZodError } from "zod";
 import { AppError } from "./application/errors.js";
 import { ApiPlacasVehicleDataProvider } from "./infrastructure/apiplacasVehicleDataProvider.js";
 import { CarsXeVehicleImageProvider } from "./infrastructure/carsXeVehicleImageProvider.js";
+import { FirebaseAccountAuthStore } from "./infrastructure/firebaseAccountAuthStore.js";
+import { FirebaseAccountDataStore } from "./infrastructure/firebaseAccountDataStore.js";
 import { FirebaseGarageRepository } from "./infrastructure/firebaseGarageRepository.js";
 import { FirebaseStorageDocumentAttachmentStore } from "./infrastructure/firebaseStorageDocumentAttachmentStore.js";
 import { FirebaseUserRepository } from "./infrastructure/firebaseUserRepository.js";
 import { GeminiInvoiceExtractionProvider } from "./infrastructure/geminiInvoiceExtractionProvider.js";
+import { DeleteAccountUseCase } from "./application/accountDeletion.js";
 import { createRouter } from "./interfaces/http/routes.js";
 
 const projectId = process.env.FIREBASE_PROJECT_ID ?? process.env.GCLOUD_PROJECT ?? process.env.GOOGLE_CLOUD_PROJECT ?? "cardocs-app";
@@ -27,6 +30,10 @@ const documentAttachmentStore = FirebaseStorageDocumentAttachmentStore.fromDefau
 app.use(createRouter(
   new FirebaseGarageRepository(firestore),
   new FirebaseUserRepository(firestore),
+  new DeleteAccountUseCase(
+    FirebaseAccountDataStore.fromDefaultBucket(firestore),
+    new FirebaseAccountAuthStore()
+  ),
   vehiclePlateProvider,
   vehicleImageProvider,
   invoiceExtractionProvider,
@@ -42,7 +49,7 @@ app.listen(port, "0.0.0.0", () => {
 
 function cors(request: Request, response: Response, next: NextFunction): void {
   response.setHeader("Access-Control-Allow-Origin", "*");
-  response.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  response.setHeader("Access-Control-Allow-Methods", "GET,POST,DELETE,OPTIONS");
   response.setHeader("Access-Control-Allow-Headers", "Authorization,Content-Type");
   response.setHeader("Access-Control-Max-Age", "3600");
 
