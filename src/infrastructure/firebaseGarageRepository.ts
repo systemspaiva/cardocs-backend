@@ -4,13 +4,15 @@ import {
   InvoiceLineItem,
   InvestmentSummary,
   MaintenanceRecord,
+  MaintenanceRecordUpdate,
   ResaleDossier,
   VehicleFipeQuote,
   VehicleDashboard,
   VehicleGarage,
   VehiclePlateDetails,
   VehicleProfile,
-  VaultDocument
+  VaultDocument,
+  VaultDocumentUpdate
 } from "../domain/models.js";
 import {
   deterministicUuid,
@@ -75,6 +77,10 @@ export class FirebaseGarageRepository {
     return this.loadGarageFromVehicleDoc(ownerId, snapshot.id, snapshot.data() ?? {});
   }
 
+  async ensureVehicleExists(ownerId: string, vehicleId: string): Promise<void> {
+    await this.resolveVehicleRef(ownerId, vehicleId);
+  }
+
   async saveAutomationResult(ownerId: string, vehicleId: string, result: AutomationResult): Promise<AutomationResult> {
     const vehicleRef = await this.resolveVehicleRef(ownerId, vehicleId);
     const timelineRef = vehicleRef.collection("timeline").doc(result.record.id);
@@ -111,6 +117,105 @@ export class FirebaseGarageRepository {
     });
 
     return result;
+  }
+
+  async saveVaultDocument(ownerId: string, vehicleId: string, document: VaultDocument): Promise<VaultDocument> {
+    const vehicleRef = await this.resolveVehicleRef(ownerId, vehicleId);
+    const documentRef = vehicleRef.collection("vaultDocuments").doc(document.id);
+
+    await this.db.runTransaction(async (transaction) => {
+      const vehicleDoc = await transaction.get(vehicleRef);
+      if (!vehicleDoc.exists) {
+        throw new NotFoundError("Veiculo nao encontrado para salvar documento.");
+      }
+
+      transaction.set(documentRef, withTimestamps(document, false), { merge: true });
+      transaction.set(vehicleRef, { updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    });
+
+    return document;
+  }
+
+  async updateVaultDocument(
+    ownerId: string,
+    vehicleId: string,
+    documentId: string,
+    update: VaultDocumentUpdate
+  ): Promise<VaultDocument> {
+    const vehicleRef = await this.resolveVehicleRef(ownerId, vehicleId);
+    const documentRef = vehicleRef.collection("vaultDocuments").doc(documentId);
+    const patch = compactUpdate(update);
+    let nextDocument: VaultDocument | null = null;
+
+    await this.db.runTransaction(async (transaction) => {
+      const documentDoc = await transaction.get(documentRef);
+      if (!documentDoc.exists) {
+        throw new NotFoundError("Documento nao encontrado.");
+      }
+
+      const nextData = { ...documentDoc.data(), ...patch };
+      nextDocument = toVaultDocument(nextData, documentDoc.id);
+      transaction.set(documentRef, withTimestamps(patch, true), { merge: true });
+      transaction.set(vehicleRef, { updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    });
+
+    if (!nextDocument) {
+      throw new NotFoundError("Documento nao encontrado.");
+    }
+    return nextDocument;
+  }
+
+  async updateMaintenanceRecord(
+    ownerId: string,
+    vehicleId: string,
+    recordId: string,
+    update: MaintenanceRecordUpdate
+  ): Promise<MaintenanceRecord> {
+    const vehicleRef = await this.resolveVehicleRef(ownerId, vehicleId);
+    const recordRef = vehicleRef.collection("timeline").doc(recordId);
+    const patch = compactUpdate(update);
+    let nextRecord: MaintenanceRecord | null = null;
+
+    await this.db.runTransaction(async (transaction) => {
+      const [vehicleDoc, recordDoc] = await Promise.all([
+        transaction.get(vehicleRef),
+        transaction.get(recordRef)
+      ]);
+      if (!vehicleDoc.exists || !recordDoc.exists) {
+        throw new NotFoundError("Nota nao encontrada.");
+      }
+
+      const recordData = recordDoc.data() ?? {};
+      const currentRecord = toMaintenanceRecord(recordData, recordDoc.id);
+      const nextData = { ...recordData, ...patch };
+      nextRecord = toMaintenanceRecord(nextData, recordDoc.id);
+
+      const amountDelta = typeof patch.amount === "number"
+        ? roundMoney(safeMoney(patch.amount) - safeMoney(currentRecord.amount))
+        : 0;
+      const currentInvestment = toInvestmentSummary(vehicleDoc.data()?.investment);
+      const documentOrTax = isDocumentOrTaxRecord(currentRecord);
+      const nextInvestment: InvestmentSummary = {
+        total: roundMoney(currentInvestment.total + amountDelta),
+        maintenance: roundMoney(currentInvestment.maintenance + (documentOrTax ? 0 : amountDelta)),
+        documentsAndTaxes: roundMoney(currentInvestment.documentsAndTaxes + (documentOrTax ? amountDelta : 0))
+      };
+
+      transaction.set(recordRef, withTimestamps(patch, true), { merge: true });
+      transaction.set(
+        vehicleRef,
+        {
+          investment: nextInvestment,
+          updatedAt: FieldValue.serverTimestamp()
+        },
+        { merge: true }
+      );
+    });
+
+    if (!nextRecord) {
+      throw new NotFoundError("Nota nao encontrada.");
+    }
+    return nextRecord;
   }
 
   async upsertResaleDossier(ownerId: string, vehicleId: string, dossier: ResaleDossier): Promise<ResaleDossier> {
@@ -285,7 +390,9 @@ function toMaintenanceRecord(value: FirebaseFirestore.DocumentData, fallbackId: 
     isAIValidated: Boolean(value.isAIValidated),
     supplierName,
     serviceTitle,
-    purchaseSummary: stringValue(value.purchaseSummary, serviceTitle ?? title) || null
+    purchaseSummary: stringValue(value.purchaseSummary, serviceTitle ?? title) || null,
+    documentID: nullableStringValue(value.documentID),
+    attachment: toDocumentAttachment(value.attachment)
   };
 }
 
@@ -299,12 +406,33 @@ function toVaultDocument(value: FirebaseFirestore.DocumentData, fallbackId: stri
     date: stringValue(value.date),
     amount: numberValue(value.amount),
     status: stringValue(value.status),
+    kind: value.kind === "vehicleDocument" || value.kind === "expenseReceipt" ? value.kind : null,
+    documentType: nullableStringValue(value.documentType),
+    notes: nullableStringValue(value.notes),
     supplierName: stringValue(value.supplierName) || null,
     serviceTitle,
     purchaseSummary: stringValue(value.purchaseSummary, summarizePurchasedInvoiceLineItems(lineItems, serviceTitle ?? title)) || null,
     source: value.source === "cameraScan" || value.source === "fileImport" || value.source === "photoLibrary" ? value.source : null,
-    lineItems
+    lineItems,
+    attachment: toDocumentAttachment(value.attachment)
   };
+}
+
+function toDocumentAttachment(value: unknown) {
+  const data = value as FirebaseFirestore.DocumentData | undefined;
+  if (!data) return null;
+
+  const attachment = {
+    storagePath: stringValue(data.storagePath),
+    downloadURL: nullableHttpsUrlString(data.downloadURL),
+    mimeType: stringValue(data.mimeType),
+    fileName: stringValue(data.fileName),
+    sizeBytes: numberValue(data.sizeBytes),
+    pageCount: numberValue(data.pageCount),
+    source: data.source === "cameraScan" || data.source === "fileImport" || data.source === "photoLibrary" ? data.source : "fileImport"
+  };
+
+  return attachment.storagePath && attachment.mimeType && attachment.fileName ? attachment : null;
 }
 
 function summarizePurchasedInvoiceLineItems(items: InvoiceLineItem[], fallback: string): string {
@@ -376,4 +504,18 @@ function nullableNumberValue(value: unknown): number | null {
 
 function hasAnyValue(value: object): boolean {
   return Object.values(value).some((item) => item !== null && item !== undefined && String(item).trim().length > 0);
+}
+
+function compactUpdate<T extends object>(value: T): Partial<T> {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, entryValue]) => entryValue !== undefined)
+  ) as Partial<T>;
+}
+
+function isDocumentOrTaxRecord(record: MaintenanceRecord): boolean {
+  const normalized = `${record.iconName} ${record.title} ${record.serviceTitle ?? ""} ${record.purchaseSummary ?? ""}`
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  return /(doc|imposto|ipva|licenciamento|taxa|seguro)/.test(normalized);
 }

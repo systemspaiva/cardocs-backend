@@ -6,6 +6,9 @@ const positiveMoneyNumberSchema = moneyNumberSchema.positive();
 const nonNegativeIntegerSchema = z.coerce.number().int().min(0);
 const confidenceSchema = z.coerce.number().int().min(0).max(100);
 const vehicleIDSchema = z.string().trim().min(1).transform((value) => value.toLowerCase());
+const documentIDSchema = z.string().trim().min(1);
+const optionalEditableTextSchema = z.string().trim().min(1).max(160).optional();
+const optionalNullableLongTextSchema = z.string().trim().max(2000).nullable().optional();
 
 export const vehicleImageSchema = z.object({
   url: z.string().url(),
@@ -72,23 +75,25 @@ export const vehicleImageLookupSchema = z.object({
   year: z.string().min(1)
 });
 
+const invoiceDocumentContentSchema = z.object({
+  mimeType: z.enum([
+    "application/pdf",
+    "image/jpeg",
+    "image/png",
+    "image/tiff",
+    "image/gif",
+    "image/bmp",
+    "image/webp"
+  ]),
+  base64Data: z.string().min(16).max(20_000_000)
+});
+
 export const invoiceDocumentInputSchema = z.object({
   source: z.enum(["cameraScan", "fileImport", "photoLibrary"]),
   displayName: z.string().min(1).max(160),
   ocrText: z.string().max(60000).optional(),
   pageCount: z.number().int().positive().max(20),
-  document: z.object({
-    mimeType: z.enum([
-      "application/pdf",
-      "image/jpeg",
-      "image/png",
-      "image/tiff",
-      "image/gif",
-      "image/bmp",
-      "image/webp"
-    ]),
-    base64Data: z.string().min(16).max(20_000_000)
-  }).nullable().optional()
+  document: invoiceDocumentContentSchema.nullable().optional()
 }).superRefine((input, context) => {
   const hasOCRText = (input.ocrText ?? "").trim().length >= 16;
   const hasDocument = Boolean(input.document?.base64Data);
@@ -101,6 +106,23 @@ export const invoiceDocumentInputSchema = z.object({
   }
 });
 
+const requiredDocumentInputSchema = z.object({
+  source: z.enum(["cameraScan", "fileImport", "photoLibrary"]),
+  displayName: z.string().min(1).max(160),
+  pageCount: z.number().int().positive().max(20),
+  document: invoiceDocumentContentSchema
+});
+
+const documentAttachmentSchema = z.object({
+  storagePath: z.string().min(1),
+  downloadURL: z.string().url().nullable().optional(),
+  mimeType: z.string().min(1),
+  fileName: z.string().min(1),
+  sizeBytes: z.number().int().positive(),
+  pageCount: z.number().int().positive().max(20),
+  source: z.enum(["cameraScan", "fileImport", "photoLibrary"])
+});
+
 export const maintenanceRecordSchema = z.object({
   id: z.string().min(1),
   iconName: z.string(),
@@ -111,7 +133,9 @@ export const maintenanceRecordSchema = z.object({
   isAIValidated: z.boolean(),
   supplierName: z.string().nullable().optional(),
   serviceTitle: z.string().nullable().optional(),
-  purchaseSummary: z.string().nullable().optional()
+  purchaseSummary: z.string().nullable().optional(),
+  documentID: z.string().nullable().optional(),
+  attachment: documentAttachmentSchema.nullable().optional()
 });
 
 export const vaultDocumentSchema = z.object({
@@ -120,9 +144,15 @@ export const vaultDocumentSchema = z.object({
   date: z.string(),
   amount: moneyNumberSchema,
   status: z.string(),
+  kind: z.enum(["expenseReceipt", "vehicleDocument"]).nullable().optional(),
+  documentType: z.string().nullable().optional(),
+  notes: z.string().nullable().optional(),
   supplierName: z.string().nullable().optional(),
   serviceTitle: z.string().nullable().optional(),
-  purchaseSummary: z.string().nullable().optional()
+  purchaseSummary: z.string().nullable().optional(),
+  source: z.enum(["cameraScan", "fileImport", "photoLibrary"]).nullable().optional(),
+  lineItems: z.array(z.lazy(() => invoiceLineItemSchema)).optional(),
+  attachment: documentAttachmentSchema.nullable().optional()
 });
 
 export const investmentDeltaSchema = z.object({
@@ -167,9 +197,45 @@ export const invoiceDraftSchema = z.object({
 
 export const saveInvoiceSchema = z.object({
   vehicleID: vehicleIDSchema,
-  draft: invoiceDraftSchema
+  draft: invoiceDraftSchema,
+  sourceDocument: requiredDocumentInputSchema.nullable().optional()
 });
 
 export const resaleDossierRequestSchema = z.object({
   vehicleID: vehicleIDSchema
+});
+
+export const createVehicleDocumentSchema = z.object({
+  vehicleID: vehicleIDSchema,
+  title: z.string().trim().min(1).max(160),
+  documentType: z.string().trim().min(1).max(80),
+  date: z.string().trim().min(1).max(80),
+  notes: z.string().trim().max(2000).nullable().optional(),
+  sourceDocument: requiredDocumentInputSchema
+});
+
+export const updateVaultDocumentSchema = z.object({
+  vehicleID: vehicleIDSchema,
+  documentID: documentIDSchema,
+  title: optionalEditableTextSchema,
+  date: optionalEditableTextSchema,
+  amount: moneyNumberSchema.min(0).optional(),
+  status: optionalEditableTextSchema,
+  documentType: z.string().trim().min(1).max(80).nullable().optional(),
+  notes: optionalNullableLongTextSchema,
+  supplierName: z.string().trim().min(1).max(160).nullable().optional(),
+  serviceTitle: z.string().trim().min(1).max(160).nullable().optional(),
+  purchaseSummary: z.string().trim().min(1).max(240).nullable().optional()
+});
+
+export const updateMaintenanceRecordSchema = z.object({
+  vehicleID: vehicleIDSchema,
+  recordID: documentIDSchema,
+  title: optionalEditableTextSchema,
+  subtitle: z.string().trim().min(1).max(240).optional(),
+  date: optionalEditableTextSchema,
+  amount: moneyNumberSchema.min(0).optional(),
+  supplierName: z.string().trim().min(1).max(160).nullable().optional(),
+  serviceTitle: z.string().trim().min(1).max(160).nullable().optional(),
+  purchaseSummary: z.string().trim().min(1).max(240).nullable().optional()
 });

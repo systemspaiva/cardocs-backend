@@ -100,6 +100,7 @@ export class InvoiceAnalysisUseCase {
     const maintenance = isDocumentOrTax ? 0 : draft.amount;
     const documentsAndTaxes = isDocumentOrTax ? draft.amount : 0;
     const purchaseSummary = summarizePurchasedItems(draft.lineItems, draft.serviceTitle);
+    const documentID = deterministicUuid("vault-document", draft.id);
 
     return {
       title: draft.serviceTitle,
@@ -119,14 +120,17 @@ export class InvoiceAnalysisUseCase {
         isAIValidated: draft.confidence >= 70,
         supplierName: draft.supplierName,
         serviceTitle: draft.serviceTitle,
-        purchaseSummary
+        purchaseSummary,
+        documentID
       },
       document: {
-        id: deterministicUuid("vault-document", draft.id),
+        id: documentID,
         title: draft.serviceTitle,
         date: draft.time ? `${draft.date} ${draft.time}` : draft.date,
         amount: draft.amount,
         status: draft.confidence >= 70 ? "Validado por IA" : "Validado pela leitura",
+        kind: "expenseReceipt",
+        documentType: isDocumentOrTax ? "Documento ou imposto" : "Nota fiscal",
         supplierName: draft.supplierName,
         serviceTitle: draft.serviceTitle,
         purchaseSummary,

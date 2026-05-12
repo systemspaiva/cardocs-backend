@@ -1,21 +1,26 @@
 import { NextFunction, Request, Response, Router } from "express";
+import { randomUUID } from "crypto";
 import { getAuth, type DecodedIdToken, type UserRecord } from "firebase-admin/auth";
+import { DocumentAttachmentStore } from "../../application/documentAttachments.js";
 import {
   generateResaleDossier,
   toVehicleProfile
 } from "../../domain/factories.js";
-import { ResaleDossier } from "../../domain/models.js";
+import { InvoiceDocumentInput, ResaleDossier, VaultDocumentKind } from "../../domain/models.js";
 import { VehicleImageLookupUseCase, VehicleImageProvider } from "../../application/vehicleImageLookup.js";
 import { InvoiceAnalysisUseCase, InvoiceDocumentExtractionProvider, InvoiceExtractionProvider } from "../../application/invoiceAnalysis.js";
 import { VehiclePlateDataProvider, VehiclePlateLookupUseCase } from "../../application/vehiclePlateLookup.js";
 import { FirebaseGarageRepository } from "../../infrastructure/firebaseGarageRepository.js";
 import { FirebaseUserRepository } from "../../infrastructure/firebaseUserRepository.js";
-import { UnauthorizedError } from "../../application/errors.js";
+import { ProviderNotConfiguredError, UnauthorizedError } from "../../application/errors.js";
 import {
+  createVehicleDocumentSchema,
   invoiceDocumentInputSchema,
   plateLookupSchema,
   resaleDossierRequestSchema,
   saveInvoiceSchema,
+  updateMaintenanceRecordSchema,
+  updateVaultDocumentSchema,
   vehicleImageLookupSchema,
   vehicleRegistrationSchema
 } from "./schemas.js";
@@ -31,7 +36,8 @@ export function createRouter(
   vehiclePlateProvider: VehiclePlateDataProvider | null = null,
   vehicleImageProvider: VehicleImageProvider | null = null,
   invoiceExtractionProvider: InvoiceExtractionProvider | null = null,
-  invoiceDocumentExtractionProvider: InvoiceDocumentExtractionProvider | null = null
+  invoiceDocumentExtractionProvider: InvoiceDocumentExtractionProvider | null = null,
+  documentAttachmentStore: DocumentAttachmentStore | null = null
 ): Router {
   const router = Router();
   const plateLookup = new VehiclePlateLookupUseCase(vehiclePlateProvider);
@@ -94,7 +100,61 @@ export function createRouter(
   router.post("/v1/invoices", asyncHandler(async (request: AuthenticatedRequest, response) => {
     const body = saveInvoiceSchema.parse(request.body);
     const result = invoiceAnalysis.toAutomationResult(body.draft);
+    if (body.sourceDocument?.document) {
+      await repository.ensureVehicleExists(requireOwnerId(request), body.vehicleID);
+      const attachment = await uploadRequiredAttachment(documentAttachmentStore, {
+        ownerId: requireOwnerId(request),
+        vehicleId: body.vehicleID,
+        documentId: result.document.id,
+        kind: "expenseReceipt",
+        document: body.sourceDocument
+      });
+      result.record.attachment = attachment;
+      result.document.attachment = attachment;
+    }
     response.status(201).json(await repository.saveAutomationResult(requireOwnerId(request), body.vehicleID, result));
+  }));
+
+  router.post("/v1/documents", asyncHandler(async (request: AuthenticatedRequest, response) => {
+    const body = createVehicleDocumentSchema.parse(request.body);
+    const documentId = randomUUID();
+    await repository.ensureVehicleExists(requireOwnerId(request), body.vehicleID);
+    const attachment = await uploadRequiredAttachment(documentAttachmentStore, {
+      ownerId: requireOwnerId(request),
+      vehicleId: body.vehicleID,
+      documentId,
+      kind: "vehicleDocument",
+      document: body.sourceDocument
+    });
+
+    response.status(201).json(await repository.saveVaultDocument(requireOwnerId(request), body.vehicleID, {
+      id: documentId,
+      title: body.title,
+      date: body.date,
+      amount: 0,
+      status: "Anexado",
+      kind: "vehicleDocument",
+      documentType: body.documentType,
+      notes: body.notes ?? null,
+      supplierName: null,
+      serviceTitle: body.title,
+      purchaseSummary: body.documentType,
+      source: body.sourceDocument.source,
+      lineItems: [],
+      attachment
+    }));
+  }));
+
+  router.post("/v1/documents/update", asyncHandler(async (request: AuthenticatedRequest, response) => {
+    const body = updateVaultDocumentSchema.parse(request.body);
+    const { vehicleID, documentID, ...update } = body;
+    response.json(await repository.updateVaultDocument(requireOwnerId(request), vehicleID, documentID, update));
+  }));
+
+  router.post("/v1/maintenance-records/update", asyncHandler(async (request: AuthenticatedRequest, response) => {
+    const body = updateMaintenanceRecordSchema.parse(request.body);
+    const { vehicleID, recordID, ...update } = body;
+    response.json(await repository.updateMaintenanceRecord(requireOwnerId(request), vehicleID, recordID, update));
   }));
 
   router.post("/v1/resale-dossiers", asyncHandler(async (request: AuthenticatedRequest, response) => {
@@ -105,6 +165,23 @@ export function createRouter(
   }));
 
   return router;
+}
+
+async function uploadRequiredAttachment(
+  store: DocumentAttachmentStore | null,
+  input: {
+    ownerId: string;
+    vehicleId: string;
+    documentId: string;
+    kind: VaultDocumentKind;
+    document: InvoiceDocumentInput;
+  }
+) {
+  if (!store) {
+    throw new ProviderNotConfiguredError("Firebase Storage ainda nao configurado para anexos.");
+  }
+
+  return store.save(input);
 }
 
 async function authenticateFirebaseToken(request: AuthenticatedRequest, _response: Response, next: NextFunction): Promise<void> {

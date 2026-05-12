@@ -1,6 +1,7 @@
 export type VehicleKind = "car" | "motorcycle";
 export type PartHealthTone = "healthy" | "warning" | "neutral";
 export type InvoiceSource = "cameraScan" | "fileImport" | "photoLibrary";
+export type VaultDocumentKind = "expenseReceipt" | "vehicleDocument";
 
 export interface UserProfile {
   id: string;
@@ -87,6 +88,8 @@ export interface MaintenanceRecord {
   supplierName?: string | null;
   serviceTitle?: string | null;
   purchaseSummary?: string | null;
+  documentID?: string | null;
+  attachment?: DocumentAttachment | null;
 }
 
 export interface PartHealth {
@@ -106,11 +109,25 @@ export interface VaultDocument {
   date: string;
   amount: number;
   status: string;
+  kind?: VaultDocumentKind | null;
+  documentType?: string | null;
+  notes?: string | null;
   supplierName?: string | null;
   serviceTitle?: string | null;
   purchaseSummary?: string | null;
   source?: InvoiceSource | null;
   lineItems?: InvoiceLineItem[];
+  attachment?: DocumentAttachment | null;
+}
+
+export interface DocumentAttachment {
+  storagePath: string;
+  downloadURL?: string | null;
+  mimeType: string;
+  fileName: string;
+  sizeBytes: number;
+  pageCount: number;
+  source: InvoiceSource;
 }
 
 export interface ResaleHighlight {
@@ -219,4 +236,26 @@ export interface AutomationResult {
   investmentDelta: InvestmentDelta;
   record: MaintenanceRecord;
   document: VaultDocument;
+}
+
+export interface VaultDocumentUpdate {
+  title?: string;
+  date?: string;
+  amount?: number;
+  status?: string;
+  documentType?: string | null;
+  notes?: string | null;
+  supplierName?: string | null;
+  serviceTitle?: string | null;
+  purchaseSummary?: string | null;
+}
+
+export interface MaintenanceRecordUpdate {
+  title?: string;
+  subtitle?: string;
+  date?: string;
+  amount?: number;
+  supplierName?: string | null;
+  serviceTitle?: string | null;
+  purchaseSummary?: string | null;
 }

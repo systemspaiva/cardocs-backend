@@ -6,11 +6,14 @@ import { AppError } from "./application/errors.js";
 import { ApiPlacasVehicleDataProvider } from "./infrastructure/apiplacasVehicleDataProvider.js";
 import { CarsXeVehicleImageProvider } from "./infrastructure/carsXeVehicleImageProvider.js";
 import { FirebaseGarageRepository } from "./infrastructure/firebaseGarageRepository.js";
+import { FirebaseStorageDocumentAttachmentStore } from "./infrastructure/firebaseStorageDocumentAttachmentStore.js";
 import { FirebaseUserRepository } from "./infrastructure/firebaseUserRepository.js";
 import { GeminiInvoiceExtractionProvider } from "./infrastructure/geminiInvoiceExtractionProvider.js";
 import { createRouter } from "./interfaces/http/routes.js";
 
-initializeApp();
+const projectId = process.env.FIREBASE_PROJECT_ID ?? process.env.GCLOUD_PROJECT ?? process.env.GOOGLE_CLOUD_PROJECT ?? "cardocs-app";
+const storageBucket = process.env.FIREBASE_STORAGE_BUCKET ?? (projectId ? `${projectId}.firebasestorage.app` : undefined);
+initializeApp(storageBucket ? { storageBucket } : undefined);
 
 const app = express();
 app.disable("x-powered-by");
@@ -20,13 +23,15 @@ const firestore = getFirestore();
 const vehiclePlateProvider = ApiPlacasVehicleDataProvider.fromEnvironment();
 const vehicleImageProvider = CarsXeVehicleImageProvider.fromEnvironment();
 const invoiceExtractionProvider = GeminiInvoiceExtractionProvider.fromEnvironment();
+const documentAttachmentStore = FirebaseStorageDocumentAttachmentStore.fromDefaultBucket();
 app.use(createRouter(
   new FirebaseGarageRepository(firestore),
   new FirebaseUserRepository(firestore),
   vehiclePlateProvider,
   vehicleImageProvider,
   invoiceExtractionProvider,
-  invoiceExtractionProvider
+  invoiceExtractionProvider,
+  documentAttachmentStore
 ));
 app.use(errorHandler);
 
