@@ -112,11 +112,14 @@ report("API_INVOICE_GEMINI_EXPLICITLY_ENABLED", geminiProvider.includes("GEMINI_
 report("API_INVOICE_SAVE_ACCEPTS_FIREBASE_AI_DRAFT", routes.includes("invoiceAnalysis.toAutomationResult(body.draft)") && schemas.includes("draft: invoiceDraftSchema"));
 report("API_INVOICE_SAVE_ACCEPTS_MANUAL_ENTRY", domainModels.includes("InvoiceSource = DocumentSource | \"manualEntry\"") && schemas.includes("\"manualEntry\"") && invoiceUseCase.includes("draft.source === \"manualEntry\""));
 report("API_INVOICE_SAVE_PERSISTS_AUTOMATION_RESULT", routes.includes("saveAutomationResult(requireOwnerId(request), body.vehicleID, result)"));
+report("API_VEHICLE_TRANSFER_REQUEST_ROUTE", routes.includes("router.post(\"/v1/vehicle-transfers\"") && routes.includes("getAuth().getUserByEmail") && schemas.includes("vehicleTransferRequestSchema"));
+report("API_VEHICLE_TRANSFER_RESPOND_ROUTE", routes.includes("router.post(\"/v1/vehicle-transfers/respond\"") && schemas.includes("vehicleTransferResponseSchema"));
 report("API_PUBLIC_REPORT_BASE_URL_CLOUD_RUN", read("src/domain/factories.ts").includes("https://cardocs-backend-5qq5b33fha-rj.a.run.app") && !read("src/domain/factories.ts").includes("cardocs-app.web.app"));
 
 const repository = read("src/infrastructure/firebaseGarageRepository.ts");
 report("FIRESTORE_REPOSITORY", repository.includes("collection(\"users\")") && repository.includes("collection(\"vehicles\")"));
 report("FIRESTORE_TRANSACTIONAL_WRITES", repository.includes("runTransaction"));
+report("FIRESTORE_VEHICLE_TRANSFER_MOVES_HISTORY", repository.includes("createVehicleTransferRequest") && repository.includes("respondToVehicleTransfer") && repository.includes("copyVehicleSubcollection") && repository.includes("transaction.delete(sourceVehicleRef)"));
 report("PUBLIC_REPORT_SLUG_OWNER_SCOPED", read("src/domain/factories.ts").includes("publicReportSlug") && repository.includes("publicReportSlug(vehicle)"));
 
 const iosInfo = read("cardocs/Info.plist", iosDir);
@@ -156,6 +159,8 @@ report(
     remoteVehicle.includes("draft: draft")
 );
 report("IOS_INVOICE_MANUAL_ENTRY_FLOW", appView.includes("onManualDraft: viewModel.createManualInvoiceDraft") && iosInvoiceFlow.includes("func createManualInvoiceDraft") && flowSheets.includes("Digitar manualmente") && flowSheets.includes("LerNotaManualEntryView"));
+report("IOS_RESALE_FLOW_REQUESTS_TRANSFER_BY_EMAIL", appView.includes("VehicleTransferRequestSheet") && iosInvoiceFlow.includes("func requestVehicleTransfer") && remoteVehicle.includes("/v1/vehicle-transfers") && flowSheets.includes("E-mail do novo dono"));
+report("IOS_INCOMING_TRANSFER_BOTTOM_SHEET", appView.includes("VehicleTransferAcceptanceSheet") && iosInvoiceFlow.includes("func respondToVehicleTransfer") && read("cardocs/Domain/VehicleModels.swift", iosDir).includes("incomingVehicleTransfers"));
 report("IOS_NO_MOCK_REPOSITORIES", !existsSync(path.resolve(iosDir, "cardocs/Data/MockAuthRepository.swift")) && !existsSync(path.resolve(iosDir, "cardocs/Data/MockVehicleRepository.swift")));
 report("IOS_PUBLIC_REPORT_BASE_URL_CLOUD_RUN", read("cardocs/Domain/VehicleModels.swift", iosDir).includes("https://cardocs-backend-5qq5b33fha-rj.a.run.app") && !read("cardocs/Domain/VehicleModels.swift", iosDir).includes("cardocs-app--develop-huam4c96.web.app"));
 

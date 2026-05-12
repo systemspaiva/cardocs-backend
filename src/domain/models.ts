@@ -3,6 +3,7 @@ export type PartHealthTone = "healthy" | "warning" | "neutral";
 export type DocumentSource = "cameraScan" | "fileImport" | "photoLibrary";
 export type InvoiceSource = DocumentSource | "manualEntry";
 export type VaultDocumentKind = "expenseReceipt" | "vehicleDocument";
+export type VehicleTransferStatus = "pending" | "accepted" | "declined";
 
 export interface UserProfile {
   id: string;
@@ -172,6 +173,25 @@ export interface VehicleDashboard {
   garages: VehicleGarage[];
   selectedGarageID: string;
   detectedVehicle: VehicleCandidate;
+  incomingVehicleTransfers: VehicleTransferRequest[];
+}
+
+export interface VehicleTransferRequest {
+  id: string;
+  vehicleID: string;
+  vehiclePlate: string;
+  vehicleTitle: string;
+  fromOwnerID: string;
+  fromOwnerEmail?: string | null;
+  fromOwnerName?: string | null;
+  toOwnerID: string;
+  toOwnerEmail: string;
+  status: VehicleTransferStatus;
+}
+
+export interface VehicleTransferDecisionResult {
+  transfer: VehicleTransferRequest;
+  dashboard: VehicleDashboard;
 }
 
 export interface InvoiceDocumentInput {

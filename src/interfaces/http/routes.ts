@@ -13,7 +13,7 @@ import { InvoiceAnalysisUseCase, InvoiceDocumentExtractionProvider, InvoiceExtra
 import { VehiclePlateDataProvider, VehiclePlateLookupUseCase } from "../../application/vehiclePlateLookup.js";
 import { FirebaseGarageRepository } from "../../infrastructure/firebaseGarageRepository.js";
 import { FirebaseUserRepository } from "../../infrastructure/firebaseUserRepository.js";
-import { ProviderNotConfiguredError, UnauthorizedError } from "../../application/errors.js";
+import { NotFoundError, ProviderNotConfiguredError, UnauthorizedError, ValidationError } from "../../application/errors.js";
 import {
   createVehicleDocumentSchema,
   invoiceDocumentInputSchema,
@@ -22,6 +22,8 @@ import {
   saveInvoiceSchema,
   updateMaintenanceRecordSchema,
   updateVaultDocumentSchema,
+  vehicleTransferRequestSchema,
+  vehicleTransferResponseSchema,
   vehicleImageLookupSchema,
   vehicleRegistrationSchema
 } from "./schemas.js";
@@ -171,7 +173,46 @@ export function createRouter(
     response.json(await repository.upsertResaleDossier(requireOwnerId(request), body.vehicleID, dossier));
   }));
 
+  router.post("/v1/vehicle-transfers", asyncHandler(async (request: AuthenticatedRequest, response) => {
+    const body = vehicleTransferRequestSchema.parse(request.body);
+    const authToken = requireAuthToken(request);
+    const targetUser = await findUserByEmail(body.recipientEmail);
+    const ownerId = requireOwnerId(request);
+    if (targetUser.uid === ownerId) {
+      throw new ValidationError("Informe o e-mail de outro usuario para transferir o veiculo.");
+    }
+
+    response.status(201).json(await repository.createVehicleTransferRequest({
+      fromOwnerId: ownerId,
+      fromOwnerEmail: authToken.email ?? null,
+      fromOwnerName: authToken.name ?? null,
+      toOwnerId: targetUser.uid,
+      toOwnerEmail: targetUser.email ?? body.recipientEmail,
+      vehicleId: body.vehicleID
+    }));
+  }));
+
+  router.post("/v1/vehicle-transfers/respond", asyncHandler(async (request: AuthenticatedRequest, response) => {
+    const body = vehicleTransferResponseSchema.parse(request.body);
+    response.json(await repository.respondToVehicleTransfer(
+      requireOwnerId(request),
+      body.transferID,
+      body.action
+    ));
+  }));
+
   return router;
+}
+
+async function findUserByEmail(email: string): Promise<UserRecord> {
+  try {
+    return await getAuth().getUserByEmail(email);
+  } catch (error) {
+    if ((error as { code?: string }).code === "auth/user-not-found") {
+      throw new NotFoundError("Usuario nao encontrado para este e-mail.");
+    }
+    throw error;
+  }
 }
 
 async function uploadRequiredAttachment(

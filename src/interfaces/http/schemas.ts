@@ -207,6 +207,16 @@ export const resaleDossierRequestSchema = z.object({
   vehicleID: vehicleIDSchema
 });
 
+export const vehicleTransferRequestSchema = z.object({
+  vehicleID: vehicleIDSchema,
+  recipientEmail: z.string().trim().email().transform((value) => value.toLowerCase())
+});
+
+export const vehicleTransferResponseSchema = z.object({
+  transferID: z.string().trim().min(1),
+  action: z.enum(["accept", "decline"])
+});
+
 export const createVehicleDocumentSchema = z.object({
   vehicleID: vehicleIDSchema,
   title: z.string().trim().min(1).max(160),
