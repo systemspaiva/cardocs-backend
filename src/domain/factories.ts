@@ -119,7 +119,7 @@ export function pendingHealth(vehicle: VehicleProfile): PartHealth[] {
 export function generateResaleDossier(
   vehicle: VehicleProfile,
   garage: Pick<VehicleGarage, "timeline" | "vaultDocuments">,
-  publicReportBaseURL = "https://cardocs-app.web.app"
+  publicReportBaseURL = "https://cardocs-backend-5qq5b33fha-rj.a.run.app"
 ): ResaleDossier {
   const hasHistory = garage.timeline.length > 0 || garage.vaultDocuments.length > 0;
   const slug = publicReportSlug(vehicle);

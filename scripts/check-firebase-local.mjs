@@ -54,14 +54,8 @@ function json(relativePath, base = backendDir) {
 const firebaseJson = json("firebase.json");
 report("FIREBASE_JSON", Boolean(firebaseJson));
 report("FIREBASE_FUNCTIONS_REMOVED", !firebaseJson?.functions);
-report("FIREBASE_HOSTING_PUBLIC", firebaseJson?.hosting?.public === "public");
-const rewrites = firebaseJson?.hosting?.rewrites ?? [];
-const cloudRunRewrite = (rewrite) => (
-  rewrite.run?.serviceId === "cardocs-backend" &&
-  rewrite.run?.region === "southamerica-east1"
-);
-report("FIREBASE_HOSTING_V1_CLOUD_RUN_REWRITE", rewrites.some((rewrite) => rewrite.source === "/v1/**" && cloudRunRewrite(rewrite)));
-report("FIREBASE_HOSTING_PUBLIC_REPORT_CLOUD_RUN_REWRITE", rewrites.some((rewrite) => rewrite.source === "/r/**" && cloudRunRewrite(rewrite)));
+report("FIREBASE_HOSTING_REMOVED", !firebaseJson?.hosting);
+report("FIREBASE_HOSTING_EMULATOR_REMOVED", !firebaseJson?.emulators?.hosting);
 report("FIREBASE_FIRESTORE_RULES_CONFIGURED", firebaseJson?.firestore?.rules === "firestore.rules");
 report("FIREBASE_FIRESTORE_INDEXES_CONFIGURED", firebaseJson?.firestore?.indexes === "firestore.indexes.json");
 const gcloudIgnore = read(".gcloudignore");
@@ -74,9 +68,9 @@ const packageJson = json("package.json");
 report("NODE_BUILD_SCRIPT", packageJson?.scripts?.build === "tsc");
 report("NODE_START_SCRIPT", packageJson?.scripts?.start === "node lib/index.js");
 report("NODE_CLOUD_RUN_DEPLOY_SCRIPT", packageJson?.scripts?.["deploy:run"] === "sh scripts/deploy-cloud-run.sh");
-report("NODE_FIREBASE_HOSTING_DEPLOY_SCRIPT", packageJson?.scripts?.["deploy:hosting"] === "sh scripts/deploy-firebase-hosting.sh");
-report("NODE_DEPLOY_REQUIRES_APPROVAL", read("scripts/deploy-cloud-run.sh").includes("CARDOCS_ALLOW_DEPLOY") && read("scripts/deploy-firebase-hosting.sh").includes("CARDOCS_ALLOW_DEPLOY"));
-report("NODE_DEPLOY_DEVELOP_ONLY", read("scripts/deploy-cloud-run.sh").includes("CARDOCS_DEPLOY_TARGET") && read("scripts/deploy-firebase-hosting.sh").includes("hosting:channel:deploy develop"));
+report("NODE_FIREBASE_HOSTING_DEPLOY_REMOVED", !packageJson?.scripts?.["deploy:hosting"] && !existsSync(path.resolve(backendDir, "scripts/deploy-firebase-hosting.sh")));
+report("NODE_DEPLOY_REQUIRES_APPROVAL", read("scripts/deploy-cloud-run.sh").includes("CARDOCS_ALLOW_DEPLOY"));
+report("NODE_DEPLOY_DEVELOP_ONLY", read("scripts/deploy-cloud-run.sh").includes("CARDOCS_DEPLOY_TARGET"));
 report("NODE_NO_FIREBASE_FUNCTIONS_DEPENDENCY", !packageJson?.dependencies?.["firebase-functions"]);
 report("NODE_REMOTE_READINESS_SCRIPT", Boolean(packageJson?.scripts?.["check:firebase-readiness"]));
 report("NODE_REMOTE_DEPLOY_READINESS_SCRIPT", Boolean(packageJson?.scripts?.["check:firebase-deploy-readiness"]));
@@ -108,6 +102,7 @@ report(
 report("API_INVOICE_GEMINI_EXPLICITLY_ENABLED", geminiProvider.includes("GEMINI_INVOICE_EXTRACTION_ENABLED") && geminiProvider.includes("GOOGLE_AI_API_KEY") && geminiProvider.includes("GEMINI_API_KEY") && geminiProvider.includes("generativelanguage.googleapis.com"));
 report("API_INVOICE_SAVE_ACCEPTS_FIREBASE_AI_DRAFT", routes.includes("invoiceAnalysis.toAutomationResult(body.draft)") && schemas.includes("draft: invoiceDraftSchema"));
 report("API_INVOICE_SAVE_PERSISTS_AUTOMATION_RESULT", routes.includes("saveAutomationResult(requireOwnerId(request), body.vehicleID, result)"));
+report("API_PUBLIC_REPORT_BASE_URL_CLOUD_RUN", read("src/domain/factories.ts").includes("https://cardocs-backend-5qq5b33fha-rj.a.run.app") && !read("src/domain/factories.ts").includes("cardocs-app.web.app"));
 
 const repository = read("src/infrastructure/firebaseGarageRepository.ts");
 report("FIRESTORE_REPOSITORY", repository.includes("collection(\"users\")") && repository.includes("collection(\"vehicles\")"));
@@ -115,7 +110,7 @@ report("FIRESTORE_TRANSACTIONAL_WRITES", repository.includes("runTransaction"));
 report("PUBLIC_REPORT_SLUG_OWNER_SCOPED", read("src/domain/factories.ts").includes("publicReportSlug") && repository.includes("publicReportSlug(vehicle)"));
 
 const iosInfo = read("cardocs/Info.plist", iosDir);
-report("IOS_API_BASE_URL_FIREBASE_HOSTING", /https:\/\/cardocs-app(?:--[a-z0-9-]+)?\.web\.app/.test(iosInfo));
+report("IOS_API_BASE_URL_CLOUD_RUN", iosInfo.includes("https://cardocs-backend-5qq5b33fha-rj.a.run.app") && !/https:\/\/cardocs-app(?:--[a-z0-9-]+)?\.web\.app/.test(iosInfo));
 report("IOS_GEMINI_MODEL_CONFIGURED", iosInfo.includes("CARDOCS_GEMINI_MODEL"));
 report("IOS_FIREBASE_AI_KILL_SWITCH_CONFIGURED", iosInfo.includes("CARDOCS_FIREBASE_AI_ENABLED"));
 report("IOS_GOOGLE_CALLBACK_BASE_SCHEME", iosInfo.includes("<string>cardocs</string>"));
@@ -144,6 +139,7 @@ report(
     remoteVehicle.includes("draft: draft")
 );
 report("IOS_NO_MOCK_REPOSITORIES", !existsSync(path.resolve(iosDir, "cardocs/Data/MockAuthRepository.swift")) && !existsSync(path.resolve(iosDir, "cardocs/Data/MockVehicleRepository.swift")));
+report("IOS_PUBLIC_REPORT_BASE_URL_CLOUD_RUN", read("cardocs/Domain/VehicleModels.swift", iosDir).includes("https://cardocs-backend-5qq5b33fha-rj.a.run.app") && !read("cardocs/Domain/VehicleModels.swift", iosDir).includes("cardocs-app--develop-huam4c96.web.app"));
 
 const entitlements = read("cardocs/cardocs.entitlements", iosDir);
 report("IOS_APPLE_SIGN_IN_ENTITLEMENT", entitlements.includes("com.apple.developer.applesignin"));

@@ -1,11 +1,10 @@
 # CarDocs Node Backend
 
-Backend Node.js/Express para o app iOS CarDocs, publicado pela URL do Firebase Hosting via rewrite para Cloud Run. Não usa Firebase Functions.
+Backend Node.js/Express para o app iOS CarDocs, publicado diretamente no Cloud Run. Não usa Firebase Functions nem Firebase Hosting como entrada do backend.
 
 ## Stack Atual
 
-- Firebase Hosting como entrada HTTPS (`cardocs-app.web.app`).
-- Cloud Run rodando o processo Node.js/Express `cardocs-backend`.
+- Cloud Run como única entrada HTTPS do backend (`https://cardocs-backend-5qq5b33fha-rj.a.run.app`).
 - Firebase Auth para autenticação do app iOS.
 - Firestore como banco de dados operacional.
 
@@ -35,7 +34,8 @@ src/
   infrastructure/
   interfaces/http/
 scripts/
-public/
+firestore.rules
+firestore.indexes.json
 ```
 
 Rotas principais:
@@ -134,7 +134,7 @@ Auditoria remota de prontidao do Firebase/Auth, sem imprimir valores sensiveis:
 GOOGLE_APPLICATION_CREDENTIALS="/caminho/local/para/service-account.json" npm run check:firebase-readiness
 ```
 
-Auditoria remota de prontidao do deploy Cloud Run/Hosting:
+Auditoria remota de prontidao do deploy Cloud Run:
 
 ```bash
 GOOGLE_APPLICATION_CREDENTIALS="/caminho/local/para/service-account.json" npm run check:firebase-deploy-readiness
@@ -162,17 +162,23 @@ GOOGLE_APPLICATION_CREDENTIALS="/caminho/local/para/service-account.json" npm ru
 
 Esse comando roda build, auditoria local, servidor Node local, readiness remoto de deploy e readiness remoto de Auth. A migracao so deve ser considerada concluida quando ele passar.
 
-## Firebase Hosting + Cloud Run
+## Cloud Run
 
-O `firebase.json` aponta `/v1/**` e `/r/**` para o Cloud Run service `cardocs-backend` em `southamerica-east1`. Assim, o app continua chamando o Firebase Hosting do ambiente configurado no `CARDOCS_API_BASE_URL` e o backend roda como Node.js, sem Firebase Functions.
+O app iOS chama diretamente o Cloud Run service `cardocs-backend` em `southamerica-east1` pela URL configurada em `CARDOCS_API_BASE_URL`. O `firebase.json` fica restrito a regras e índices do Firestore; ele não possui bloco `hosting`, rewrites, canal de preview ou deploy de Hosting para o backend.
+
+URL atual do backend:
+
+```text
+https://cardocs-backend-5qq5b33fha-rj.a.run.app
+```
 
 Quando o deploy for autorizado, o fluxo esperado exige confirmação explícita por variável de ambiente:
 
 ```bash
 export FIREBASE_PROJECT_ID="cardocs-app"
 export CARDOCS_ALLOW_DEPLOY=1
+export CARDOCS_DEPLOY_TARGET=develop
 npm run deploy:run
-npm run deploy:hosting
 ```
 
 Deploy deve seguir o Git Flow definido no projeto. Não faça merge na `main` nem deploy para produção sem autorização explícita.

@@ -1,34 +1,4 @@
 {
-  "hosting": {
-    "public": "public",
-    "ignore": [
-      "firebase.json",
-      "**/.*",
-      "**/node_modules/**"
-    ],
-    "rewrites": [
-      {
-        "source": "/r/**",
-        "run": {
-          "serviceId": "cardocs-backend",
-          "region": "southamerica-east1",
-          "pinTag": true
-        }
-      },
-      {
-        "source": "/v1/**",
-        "run": {
-          "serviceId": "cardocs-backend",
-          "region": "southamerica-east1",
-          "pinTag": true
-        }
-      },
-      {
-        "source": "**",
-        "destination": "/index.html"
-      }
-    ]
-  },
   "firestore": {
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"
@@ -39,9 +9,6 @@
     },
     "firestore": {
       "port": 8080
-    },
-    "hosting": {
-      "port": 5002
     },
     "ui": {
       "enabled": true,

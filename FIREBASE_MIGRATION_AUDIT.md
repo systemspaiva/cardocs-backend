@@ -2,7 +2,7 @@
 
 ## Objective checklist
 
-- Backend Node.js/Express deployable behind Firebase Hosting via Cloud Run rewrite: local artifact ready.
+- Backend Node.js/Express deployable directly on Cloud Run without Firebase Hosting rewrites: local artifact ready.
 - Firebase Functions removed from backend runtime and deploy config: local artifact ready.
 - Firestore as operational database: local artifact ready.
 - iOS app configured with Firebase SDK: local artifact ready.
@@ -14,13 +14,13 @@
 - No direct Mercado Livre calls: local artifact ready.
 - No fake data persisted to Firestore: provider-dependent flows fail closed unless real data is supplied; invoice analysis and invoice save both fail closed until a real OCR/IA provider is configured; manual vehicle registration was removed, and vehicle registration now revalidates the plate through the backend provider before saving.
 - Public report slugs include a vehicle-specific suffix, avoiding global overwrite by plate alone.
-- Deploy scripts require `CARDOCS_ALLOW_DEPLOY=1` and an explicit `FIREBASE_PROJECT_ID`.
+- Deploy script requires `CARDOCS_ALLOW_DEPLOY=1`, `CARDOCS_DEPLOY_TARGET=develop`, and an explicit `FIREBASE_PROJECT_ID`.
 
 ## Prompt-to-artifact completion audit
 
 | Requirement | Artifact/evidence | Current status |
 | --- | --- | --- |
-| Recreate backend in a stack that can be reached from Firebase Hosting | `firebase.json` rewrites `/v1/**` and `/r/**` to Cloud Run service `cardocs-backend`; `Dockerfile` builds the Node app; `src/index.ts` listens on `process.env.PORT`. | Local artifact ready; remote Cloud Run blocked by `403`. |
+| Recreate backend in a stack that can be reached without Firebase Hosting | `firebase.json` has no `hosting` block; `package.json` exposes only `deploy:run`; `Dockerfile` builds the Node app; `src/index.ts` listens on `process.env.PORT`; the iOS `CARDOCS_API_BASE_URL` points directly to `https://cardocs-backend-5qq5b33fha-rj.a.run.app`. | Local artifact ready; Cloud Run service responds to `/v1/health`. |
 | Do not use Firebase Functions | `firebase.json` has no `functions` block; `package.json` has no `firebase-functions`; `check:firebase-local` reports `FIREBASE_FUNCTIONS_REMOVED=ok` and `NODE_NO_FIREBASE_FUNCTIONS_DEPENDENCY=ok`. | Ready. |
 | Use Firestore as database | `src/infrastructure/firebaseGarageRepository.ts` stores under `users/{uid}/vehicles` and `publicReports`; `firestore.rules` denies client direct read/write; Admin SDK is used server-side. | Ready locally; rules still require deploy. |
 | Use Firebase project config for iOS | `cardocs/GoogleService-Info.plist` is included in the iOS target; `cardocsApp.swift` calls `FirebaseApp.configure()`. | Ready for Firebase core; Google OAuth fields missing remotely. |
@@ -31,7 +31,7 @@
 | Use backend service account safely | Scripts accept `GOOGLE_APPLICATION_CREDENTIALS` path; secret file patterns are ignored by `.gitignore`, `.dockerignore`, and `.gcloudignore`; `check:no-sensitive-files` scans both repos for service account/private key artifacts; scripts print presence/status only. | Ready locally; credentials not committed. |
 | No Mercado Livre direct calls | `check:firebase-local` scans active backend source and reports `BACKEND_NO_LEGACY_PROVIDER_REFERENCES=ok`. | Ready. |
 | No fake data saved in DB | Provider-dependent flows fail closed, including invoice save; vehicle registration accepts only plate and mileage, then revalidates the plate through the backend provider before saving; `check:firebase-local` reports `API_PROVIDER_CALLS_FAIL_CLOSED=ok` and `API_VEHICLE_REGISTRATION_REVALIDATES_PLATE=ok`. | Ready locally. |
-| Final deploy readiness | `check:firebase-deploy-readiness` checks Service Usage and Cloud Run service existence. | Blocked by `403` for required services and Cloud Run. |
+| Final deploy readiness | `check:firebase-deploy-readiness` checks Service Usage and Cloud Run service existence. | Requires service-account credentials for the script; the active `gcloud` account can describe the current Cloud Run URL. |
 
 ## Local gates
 
@@ -83,15 +83,16 @@ AUTH_GOOGLE_COM=missing
 AUTH_APPLE_COM=enabled
 ```
 
-Cloud Run remote readiness is also blocked in the current project state: `run.googleapis.com` is disabled or unavailable to the active CLI account, so the Cloud Run service cannot be listed or deployed until the API/permission gate is resolved.
+Cloud Run direct health check:
 
-Current deploy-readiness result:
+```bash
+curl -fsS https://cardocs-backend-5qq5b33fha-rj.a.run.app/v1/health
+```
 
-```text
-SERVICE_RUN_GOOGLEAPIS_COM=failed_403
-SERVICE_CLOUDBUILD_GOOGLEAPIS_COM=failed_403
-SERVICE_ARTIFACTREGISTRY_GOOGLEAPIS_COM=failed_403
-CLOUD_RUN_SERVICE=failed_403
+Expected result:
+
+```json
+{"status":"UP","runtime":"node"}
 ```
 
 ## External work required
@@ -101,37 +102,30 @@ The objective is not complete until the remote gate passes.
 Required remote actions:
 
 1. Configure Firebase Auth Google provider with valid OAuth client data.
-2. Enable Cloud Run API / required permissions for project `cardocs-app`.
+2. Confirm Cloud Run API / required permissions for project `cardocs-app`.
 3. Deploy the Node backend to Cloud Run service `cardocs-backend` in `southamerica-east1`, only after the Git Flow approval gate:
 
 ```bash
 export FIREBASE_PROJECT_ID="cardocs-app"
 export CARDOCS_ALLOW_DEPLOY=1
+export CARDOCS_DEPLOY_TARGET=develop
 npm run deploy:run
 ```
 
-4. Deploy Firebase Hosting/Firestore config so `/v1/**` and `/r/**` route to Cloud Run:
-
-```bash
-export FIREBASE_PROJECT_ID="cardocs-app"
-export CARDOCS_ALLOW_DEPLOY=1
-npm run deploy:hosting
-```
-
-5. Refresh the iOS Firebase config:
+4. Refresh the iOS Firebase config:
 
 ```bash
 GOOGLE_APPLICATION_CREDENTIALS="/caminho/local/para/service-account.json" npm run refresh:ios-config -- --apply
 ```
 
-6. In the iOS repo, apply and validate the Google callback scheme:
+5. In the iOS repo, apply and validate the Google callback scheme:
 
 ```bash
 sh scripts/apply-google-url-scheme.sh
 sh scripts/check-firebase-ios-config.sh
 ```
 
-7. Re-run:
+6. Re-run:
 
 ```bash
 npm run verify:local
