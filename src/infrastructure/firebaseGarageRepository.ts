@@ -5,6 +5,7 @@ import {
   InvestmentSummary,
   MaintenanceRecord,
   MaintenanceRecordUpdate,
+  OutgoingVehicleTransfer,
   ResaleDossier,
   VehicleFipeQuote,
   VehicleDashboard,
@@ -34,14 +35,15 @@ export class FirebaseGarageRepository {
   constructor(private readonly db: Firestore) {}
 
   async loadDashboard(ownerId: string): Promise<VehicleDashboard> {
-    const [vehicles, incomingVehicleTransfers] = await Promise.all([
+    const [vehicles, incomingVehicleTransfers, outgoingVehicleTransfers] = await Promise.all([
       this.db
         .collection("users")
         .doc(ownerId)
         .collection("vehicles")
         .orderBy("createdAt", "asc")
         .get(),
-      this.loadIncomingVehicleTransfers(ownerId)
+      this.loadIncomingVehicleTransfers(ownerId),
+      this.loadOutgoingVehicleTransfers(ownerId)
     ]);
 
     const garages = await Promise.all(
@@ -53,7 +55,8 @@ export class FirebaseGarageRepository {
       garages,
       selectedGarageID: garages[0]?.id ?? zeroUuid,
       detectedVehicle: emptyDetectedVehicle(),
-      incomingVehicleTransfers
+      incomingVehicleTransfers,
+      outgoingVehicleTransfers
     };
   }
 
@@ -259,15 +262,21 @@ export class FirebaseGarageRepository {
     const sourceVehicleRef = await this.resolveVehicleRef(input.fromOwnerId, input.vehicleId);
     const transferId = deterministicUuid("vehicle-transfer", `${input.fromOwnerId}:${sourceVehicleRef.id}:${input.toOwnerId}`);
     const transferRef = this.incomingVehicleTransferRef(input.toOwnerId, transferId);
+    const outgoingTransferRef = this.outgoingVehicleTransferRef(input.fromOwnerId, sourceVehicleRef.id);
     let transfer: VehicleTransferRequest | null = null;
 
     await this.db.runTransaction(async (transaction) => {
-      const [vehicleDoc, transferDoc] = await Promise.all([
+      const [vehicleDoc, transferDoc, outgoingTransferDoc] = await Promise.all([
         transaction.get(sourceVehicleRef),
-        transaction.get(transferRef)
+        transaction.get(transferRef),
+        transaction.get(outgoingTransferRef)
       ]);
       if (!vehicleDoc.exists) {
         throw new NotFoundError("Veiculo nao encontrado para transferencia.");
+      }
+      const pendingOutgoingTransfer = toPendingOutgoingVehicleTransfer(outgoingTransferDoc.data());
+      if (pendingOutgoingTransfer && pendingOutgoingTransfer.toOwnerID !== input.toOwnerId) {
+        throw new ValidationError("Este veiculo ja possui uma transferencia pendente.");
       }
 
       const vehicle = toVehicleProfile(vehicleDoc.data()?.vehicle, sourceVehicleRef.id, { idOverride: sourceVehicleRef.id });
@@ -285,6 +294,15 @@ export class FirebaseGarageRepository {
       };
 
       transaction.set(transferRef, withTimestamps(transfer, transferDoc.exists), { merge: true });
+      transaction.set(outgoingTransferRef, withTimestamps({
+        transferID: transferId,
+        vehicleID: sourceVehicleRef.id,
+        vehiclePlate: vehicle.plate,
+        vehicleTitle: `${vehicle.brand} ${vehicle.model}`.trim() || vehicle.plate,
+        toOwnerID: input.toOwnerId,
+        toOwnerEmail: input.toOwnerEmail,
+        status: "pending"
+      }, outgoingTransferDoc.exists), { merge: true });
     });
 
     if (!transfer) {
@@ -318,6 +336,10 @@ export class FirebaseGarageRepository {
       if (action === "decline") {
         transfer = { ...currentTransfer, status: "declined" };
         transaction.set(transferRef, withTimestamps(transfer, true), { merge: true });
+        transaction.set(this.outgoingVehicleTransferRef(currentTransfer.fromOwnerID, currentTransfer.vehicleID), {
+          status: "declined",
+          updatedAt: FieldValue.serverTimestamp()
+        }, { merge: true });
         return;
       }
 
@@ -355,6 +377,10 @@ export class FirebaseGarageRepository {
 
       transfer = { ...currentTransfer, status: "accepted" };
       transaction.set(transferRef, withTimestamps(transfer, true), { merge: true });
+      transaction.set(this.outgoingVehicleTransferRef(currentTransfer.fromOwnerID, currentTransfer.vehicleID), {
+        status: "accepted",
+        updatedAt: FieldValue.serverTimestamp()
+      }, { merge: true });
     });
 
     if (!transfer) {
@@ -424,13 +450,25 @@ export class FirebaseGarageRepository {
       .collection("incomingVehicleTransfers")
       .get();
 
-    return snapshot.docs
-      .map((doc) => toVehicleTransferRequest(doc.data(), doc.id))
-      .filter((transfer) => transfer.status === "pending");
+    return snapshot.docs.map((doc) => toVehicleTransferRequest(doc.data(), doc.id));
+  }
+
+  private async loadOutgoingVehicleTransfers(ownerId: string): Promise<OutgoingVehicleTransfer[]> {
+    const snapshot = await this.db
+      .collection("users")
+      .doc(ownerId)
+      .collection("outgoingVehicleTransfers")
+      .get();
+
+    return snapshot.docs.map((doc) => toOutgoingVehicleTransfer(doc.data(), doc.id));
   }
 
   private incomingVehicleTransferRef(ownerId: string, transferId: string) {
     return this.db.collection("users").doc(ownerId).collection("incomingVehicleTransfers").doc(transferId);
+  }
+
+  private outgoingVehicleTransferRef(ownerId: string, vehicleId: string) {
+    return this.db.collection("users").doc(ownerId).collection("outgoingVehicleTransfers").doc(vehicleId);
   }
 
   private vehicleRef(ownerId: string, vehicleId: string) {
@@ -493,6 +531,35 @@ function toVehicleTransferRequest(value: FirebaseFirestore.DocumentData, fallbac
     toOwnerID: stringValue(value.toOwnerID),
     toOwnerEmail: stringValue(value.toOwnerEmail),
     status
+  };
+}
+
+function toOutgoingVehicleTransfer(value: FirebaseFirestore.DocumentData, fallbackId: string): OutgoingVehicleTransfer {
+  const status = value.status === "accepted" || value.status === "declined" ? value.status : "pending";
+  const vehicleID = stringValue(value.vehicleID, fallbackId);
+  const vehiclePlate = stringValue(value.vehiclePlate);
+  const vehicleTitle = stringValue(value.vehicleTitle, vehiclePlate || "Veiculo transferido");
+  return {
+    transferID: stringValue(value.transferID, fallbackId),
+    vehicleID,
+    vehiclePlate,
+    vehicleTitle,
+    toOwnerID: nullableStringValue(value.toOwnerID),
+    toOwnerEmail: stringValue(value.toOwnerEmail),
+    status
+  };
+}
+
+function toPendingOutgoingVehicleTransfer(value: FirebaseFirestore.DocumentData | undefined): { toOwnerID: string } | null {
+  if (!value || value.status !== "pending") {
+    return null;
+  }
+  const toOwnerID = nullableStringValue(value.toOwnerID);
+  if (!toOwnerID) {
+    return null;
+  }
+  return {
+    toOwnerID
   };
 }
 

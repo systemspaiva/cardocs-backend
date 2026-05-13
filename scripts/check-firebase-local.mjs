@@ -114,12 +114,25 @@ report("API_INVOICE_SAVE_ACCEPTS_MANUAL_ENTRY", domainModels.includes("InvoiceSo
 report("API_INVOICE_SAVE_PERSISTS_AUTOMATION_RESULT", routes.includes("saveAutomationResult(requireOwnerId(request), body.vehicleID, result)"));
 report("API_VEHICLE_TRANSFER_REQUEST_ROUTE", routes.includes("router.post(\"/v1/vehicle-transfers\"") && routes.includes("getAuth().getUserByEmail") && schemas.includes("vehicleTransferRequestSchema"));
 report("API_VEHICLE_TRANSFER_RESPOND_ROUTE", routes.includes("router.post(\"/v1/vehicle-transfers/respond\"") && schemas.includes("vehicleTransferResponseSchema"));
+report("API_PUSH_DEVICE_TOKEN_ROUTES", routes.includes("router.post(\"/v1/device-tokens\"") && routes.includes("router.post(\"/v1/device-tokens/remove\"") && schemas.includes("pushDeviceTokenRegistrationSchema"));
+report("API_TRANSFER_SENDS_PUSH_NOTIFICATIONS", routes.includes("void pushNotifications?.notifyVehicleTransferRequested(transfer)") && routes.includes("void pushNotifications?.notifyVehicleTransferAccepted(result.transfer)") && routes.includes("void pushNotifications?.notifyVehicleTransferDeclined(result.transfer)"));
 report("API_PUBLIC_REPORT_BASE_URL_CLOUD_RUN", read("src/domain/factories.ts").includes("https://cardocs-backend-5qq5b33fha-rj.a.run.app") && !read("src/domain/factories.ts").includes("cardocs-app.web.app"));
 
 const repository = read("src/infrastructure/firebaseGarageRepository.ts");
+const pushUseCase = read("src/application/pushNotifications.ts");
+const pushTokenStore = read("src/infrastructure/firebasePushDeviceTokenStore.ts");
+const pushSender = read("src/infrastructure/firebaseCloudMessagingPushSender.ts");
 report("FIRESTORE_REPOSITORY", repository.includes("collection(\"users\")") && repository.includes("collection(\"vehicles\")"));
 report("FIRESTORE_TRANSACTIONAL_WRITES", repository.includes("runTransaction"));
 report("FIRESTORE_VEHICLE_TRANSFER_MOVES_HISTORY", repository.includes("createVehicleTransferRequest") && repository.includes("respondToVehicleTransfer") && repository.includes("copyVehicleSubcollection") && repository.includes("transaction.delete(sourceVehicleRef)"));
+report("FIRESTORE_OUTGOING_TRANSFER_STATUS_IN_DASHBOARD", repository.includes("loadOutgoingVehicleTransfers") && repository.includes("outgoingVehicleTransfers") && read("src/domain/models.ts").includes("interface OutgoingVehicleTransfer"));
+report("FIRESTORE_OUTGOING_TRANSFER_PRESERVES_VEHICLE_DISPLAY", repository.includes("vehiclePlate: vehicle.plate") && repository.includes("vehicleTitle: `${vehicle.brand} ${vehicle.model}`.trim() || vehicle.plate"));
+const incomingTransfersLoader = repository.match(/private async loadIncomingVehicleTransfers[\s\S]*?private async loadOutgoingVehicleTransfers/)?.[0] ?? "";
+report("FIRESTORE_INCOMING_TRANSFER_HISTORY_IN_DASHBOARD", incomingTransfersLoader.includes("incomingVehicleTransfers") && !incomingTransfersLoader.includes("transfer.status === \"pending\""));
+report("FIRESTORE_PUSH_TOKENS_OWNER_SCOPED", pushTokenStore.includes("collection(\"pushDeviceTokens\")") && pushTokenStore.includes("createHash(\"sha256\")") && pushTokenStore.includes("doc(ownerId)"));
+report("FIRESTORE_PUSH_TOKEN_GLOBAL_OWNERSHIP", pushTokenStore.includes("globalTokenRef") && pushTokenStore.includes("previousOwnerId") && pushTokenStore.includes("transaction.delete(this.tokenRef(previousOwnerId, registration.token))"));
+report("FCM_PUSH_SENDER_BEST_EFFORT", pushUseCase.includes("sendBestEffort") && pushUseCase.includes("invalidTokens") && pushUseCase.includes("notifyVehicleTransferDeclined") && pushSender.includes("sendEachForMulticast"));
+report("FIRESTORE_TRANSFER_SINGLE_PENDING_PER_VEHICLE", repository.includes("outgoingVehicleTransferRef") && repository.includes("Este veiculo ja possui uma transferencia pendente.") && repository.includes("toPendingOutgoingVehicleTransfer"));
 report("PUBLIC_REPORT_SLUG_OWNER_SCOPED", read("src/domain/factories.ts").includes("publicReportSlug") && repository.includes("publicReportSlug(vehicle)"));
 
 const iosInfo = read("cardocs/Info.plist", iosDir);
@@ -133,6 +146,7 @@ const iosApp = read("cardocs/cardocsApp.swift", iosDir);
 report("IOS_FIREBASE_APP_CONFIGURE", iosApp.includes("FirebaseApp.configure()"));
 report("IOS_FIREBASE_APP_CHECK_CONFIGURE", iosApp.includes("AppCheck.setAppCheckProviderFactory"));
 report("IOS_GOOGLE_OPEN_URL_HANDLER", iosApp.includes("GIDSignIn.sharedInstance.handle(url)"));
+report("IOS_PUSH_DELEGATE_CONFIGURED", iosApp.includes("@UIApplicationDelegateAdaptor(CarDocsAppDelegate.self)") && iosApp.includes("PushNotificationRegistrationService.shared.configure()"));
 
 const remoteAuth = read("cardocs/Data/RemoteAuthRepository.swift", iosDir);
 report("IOS_EMAIL_PASSWORD_AUTH", remoteAuth.includes("signIn(") && remoteAuth.includes("createUser("));
@@ -150,6 +164,7 @@ report("IOS_ACCOUNT_SHEET_HAS_DELETE_CONFIRMATION", flowSheets.includes("Apagar 
 const remoteVehicle = read("cardocs/Data/RemoteVehicleRepository.swift", iosDir);
 report("IOS_API_RETRIES_401_WITH_REFRESH", remoteVehicle.includes("statusCode == 401") && remoteVehicle.includes("forceRefresh: true"));
 const iosInvoiceFlow = read("cardocs/Presentation/ViewModels/CarDocsViewModel.swift", iosDir);
+const iosPushRegistration = read("cardocs/Data/PushNotificationRegistrationService.swift", iosDir);
 report(
   "IOS_INVOICE_ANALYSIS_USES_FIREBASE_AI_DOCUMENT_UPLOAD",
   iosInvoiceFlow.includes("DefaultInvoiceDocumentPreparer") &&
@@ -160,12 +175,21 @@ report(
 );
 report("IOS_INVOICE_MANUAL_ENTRY_FLOW", appView.includes("onManualDraft: viewModel.createManualInvoiceDraft") && iosInvoiceFlow.includes("func createManualInvoiceDraft") && flowSheets.includes("Digitar manualmente") && flowSheets.includes("LerNotaManualEntryView"));
 report("IOS_RESALE_FLOW_REQUESTS_TRANSFER_BY_EMAIL", appView.includes("VehicleTransferRequestSheet") && iosInvoiceFlow.includes("func requestVehicleTransfer") && remoteVehicle.includes("/v1/vehicle-transfers") && flowSheets.includes("E-mail do novo dono"));
+report("IOS_OUTGOING_TRANSFER_REFRESH_AFTER_REQUEST", iosInvoiceFlow.includes("let selectedGarageID = dashboard?.selectedGarageID") && iosInvoiceFlow.includes("repository.loadDashboard()") && iosInvoiceFlow.includes("dashboard = refreshed"));
 report("IOS_INCOMING_TRANSFER_BOTTOM_SHEET", appView.includes("VehicleTransferAcceptanceSheet") && iosInvoiceFlow.includes("func respondToVehicleTransfer") && read("cardocs/Domain/VehicleModels.swift", iosDir).includes("incomingVehicleTransfers"));
+report("IOS_TRANSFER_STATUS_TAB", iosInvoiceFlow.includes("case transfers = \"Transferências\"") && appView.includes("case .transfers") && appView.includes("TransfersView"));
+report("IOS_INCOMING_TRANSFER_HISTORY_SCREEN", appView.includes("IncomingTransferStatusSection") && appView.includes("onRespondToIncomingTransfer") && iosInvoiceFlow.includes("func openIncomingTransfer") && iosInvoiceFlow.includes("first { $0.status == .pending }"));
+report("IOS_EMPTY_GARAGE_TRANSFER_STATUS_SCROLL_REFRESH", appView.includes("EmptyGarageView(") && appView.includes("incomingTransfers: dashboard.incomingVehicleTransfers") && appView.includes(".refreshable {\n                    await viewModel.refreshDashboard()"));
+report("IOS_ACCEPTED_TRANSFER_SELECTS_RECEIVED_VEHICLE", iosInvoiceFlow.includes("updatedDashboard.selectGarage(id: result.transfer.vehicleID)") && iosInvoiceFlow.includes("presentIncomingVehicleTransferIfNeeded(from: updatedDashboard)"));
+report("IOS_OUTGOING_TRANSFER_STATUS_SECTION", flowSheets.includes("Transferências enviadas") && flowSheets.includes("OutgoingVehicleTransfer") && read("cardocs/Domain/VehicleModels.swift", iosDir).includes("outgoingVehicleTransfers"));
+report("IOS_PUSH_TOKEN_REGISTERS_WITH_BACKEND", iosPushRegistration.includes("FirebaseMessaging") && iosPushRegistration.includes("UNUserNotificationCenter") && iosPushRegistration.includes("/v1/device-tokens") && iosPushRegistration.includes("/v1/device-tokens/remove"));
+report("IOS_PUSH_REFRESHES_DASHBOARD", iosPushRegistration.includes("didReceive response: UNNotificationResponse") && iosPushRegistration.includes("carDocsPushNotificationReceived") && read("cardocs/ContentView.swift", iosDir).includes("carDocsViewModel.refreshDashboard()"));
 report("IOS_NO_MOCK_REPOSITORIES", !existsSync(path.resolve(iosDir, "cardocs/Data/MockAuthRepository.swift")) && !existsSync(path.resolve(iosDir, "cardocs/Data/MockVehicleRepository.swift")));
 report("IOS_PUBLIC_REPORT_BASE_URL_CLOUD_RUN", read("cardocs/Domain/VehicleModels.swift", iosDir).includes("https://cardocs-backend-5qq5b33fha-rj.a.run.app") && !read("cardocs/Domain/VehicleModels.swift", iosDir).includes("cardocs-app--develop-huam4c96.web.app"));
 
 const entitlements = read("cardocs/cardocs.entitlements", iosDir);
 report("IOS_APPLE_SIGN_IN_ENTITLEMENT", entitlements.includes("com.apple.developer.applesignin"));
+report("IOS_PUSH_ENTITLEMENT", entitlements.includes("aps-environment") && entitlements.includes("$(APS_ENVIRONMENT)") && read("Podfile", iosDir).includes("FirebaseMessaging"));
 
 const forbiddenBackend = /Cognito|AWS|Dynamo|amazonaws|execute-api|Mercado Livre|MercadoLivre|api\.mercadolibre/.test(
   [

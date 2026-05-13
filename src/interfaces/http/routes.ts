@@ -3,6 +3,7 @@ import { randomUUID } from "crypto";
 import { getAuth, type DecodedIdToken, type UserRecord } from "firebase-admin/auth";
 import { DocumentAttachmentStore } from "../../application/documentAttachments.js";
 import { DeleteAccountUseCase } from "../../application/accountDeletion.js";
+import { PushNotificationService } from "../../application/pushNotifications.js";
 import {
   generateResaleDossier,
   toVehicleProfile
@@ -18,6 +19,8 @@ import {
   createVehicleDocumentSchema,
   invoiceDocumentInputSchema,
   plateLookupSchema,
+  pushDeviceTokenRegistrationSchema,
+  pushDeviceTokenRemovalSchema,
   resaleDossierRequestSchema,
   saveInvoiceSchema,
   updateMaintenanceRecordSchema,
@@ -41,7 +44,8 @@ export function createRouter(
   vehicleImageProvider: VehicleImageProvider | null = null,
   invoiceExtractionProvider: InvoiceExtractionProvider | null = null,
   invoiceDocumentExtractionProvider: InvoiceDocumentExtractionProvider | null = null,
-  documentAttachmentStore: DocumentAttachmentStore | null = null
+  documentAttachmentStore: DocumentAttachmentStore | null = null,
+  pushNotifications: PushNotificationService | null = null
 ): Router {
   const router = Router();
   const plateLookup = new VehiclePlateLookupUseCase(vehiclePlateProvider);
@@ -71,6 +75,18 @@ export function createRouter(
 
   router.delete("/v1/me", asyncHandler(async (request: AuthenticatedRequest, response) => {
     await accountDeletion.deleteAccount(requireOwnerId(request));
+    response.status(204).send();
+  }));
+
+  router.post("/v1/device-tokens", asyncHandler(async (request: AuthenticatedRequest, response) => {
+    const body = pushDeviceTokenRegistrationSchema.parse(request.body);
+    await pushNotifications?.registerDeviceToken(requireOwnerId(request), body);
+    response.status(204).send();
+  }));
+
+  router.post("/v1/device-tokens/remove", asyncHandler(async (request: AuthenticatedRequest, response) => {
+    const body = pushDeviceTokenRemovalSchema.parse(request.body);
+    await pushNotifications?.unregisterDeviceToken(requireOwnerId(request), body.token);
     response.status(204).send();
   }));
 
@@ -182,23 +198,31 @@ export function createRouter(
       throw new ValidationError("Informe o e-mail de outro usuario para transferir o veiculo.");
     }
 
-    response.status(201).json(await repository.createVehicleTransferRequest({
+    const transfer = await repository.createVehicleTransferRequest({
       fromOwnerId: ownerId,
       fromOwnerEmail: authToken.email ?? null,
       fromOwnerName: authToken.name ?? null,
       toOwnerId: targetUser.uid,
       toOwnerEmail: targetUser.email ?? body.recipientEmail,
       vehicleId: body.vehicleID
-    }));
+    });
+    void pushNotifications?.notifyVehicleTransferRequested(transfer);
+    response.status(201).json(transfer);
   }));
 
   router.post("/v1/vehicle-transfers/respond", asyncHandler(async (request: AuthenticatedRequest, response) => {
     const body = vehicleTransferResponseSchema.parse(request.body);
-    response.json(await repository.respondToVehicleTransfer(
+    const result = await repository.respondToVehicleTransfer(
       requireOwnerId(request),
       body.transferID,
       body.action
-    ));
+    );
+    if (body.action === "accept") {
+      void pushNotifications?.notifyVehicleTransferAccepted(result.transfer);
+    } else {
+      void pushNotifications?.notifyVehicleTransferDeclined(result.transfer);
+    }
+    response.json(result);
   }));
 
   return router;

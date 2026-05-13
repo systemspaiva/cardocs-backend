@@ -174,6 +174,7 @@ export interface VehicleDashboard {
   selectedGarageID: string;
   detectedVehicle: VehicleCandidate;
   incomingVehicleTransfers: VehicleTransferRequest[];
+  outgoingVehicleTransfers: OutgoingVehicleTransfer[];
 }
 
 export interface VehicleTransferRequest {
@@ -185,6 +186,16 @@ export interface VehicleTransferRequest {
   fromOwnerEmail?: string | null;
   fromOwnerName?: string | null;
   toOwnerID: string;
+  toOwnerEmail: string;
+  status: VehicleTransferStatus;
+}
+
+export interface OutgoingVehicleTransfer {
+  transferID: string;
+  vehicleID: string;
+  vehiclePlate: string;
+  vehicleTitle: string;
+  toOwnerID?: string | null;
   toOwnerEmail: string;
   status: VehicleTransferStatus;
 }

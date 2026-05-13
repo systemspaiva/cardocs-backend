@@ -6,11 +6,13 @@ const positiveMoneyNumberSchema = moneyNumberSchema.positive();
 const nonNegativeIntegerSchema = z.coerce.number().int().min(0);
 const confidenceSchema = z.coerce.number().int().min(0).max(100);
 const vehicleIDSchema = z.string().trim().min(1).transform((value) => value.toLowerCase());
+const transferIDSchema = z.string().trim().min(1).transform((value) => value.toLowerCase());
 const documentIDSchema = z.string().trim().min(1);
 const optionalEditableTextSchema = z.string().trim().min(1).max(160).optional();
 const optionalNullableLongTextSchema = z.string().trim().max(2000).nullable().optional();
 const documentSourceSchema = z.enum(["cameraScan", "fileImport", "photoLibrary"]);
 const invoiceSourceSchema = z.enum(["cameraScan", "fileImport", "photoLibrary", "manualEntry"]);
+const pushDeviceTokenSchema = z.string().trim().min(16).max(4096);
 
 export const vehicleImageSchema = z.object({
   url: z.string().url(),
@@ -213,8 +215,17 @@ export const vehicleTransferRequestSchema = z.object({
 });
 
 export const vehicleTransferResponseSchema = z.object({
-  transferID: z.string().trim().min(1),
+  transferID: transferIDSchema,
   action: z.enum(["accept", "decline"])
+});
+
+export const pushDeviceTokenRegistrationSchema = z.object({
+  token: pushDeviceTokenSchema,
+  platform: z.enum(["ios"])
+});
+
+export const pushDeviceTokenRemovalSchema = z.object({
+  token: pushDeviceTokenSchema
 });
 
 export const createVehicleDocumentSchema = z.object({

@@ -7,11 +7,14 @@ import { ApiPlacasVehicleDataProvider } from "./infrastructure/apiplacasVehicleD
 import { CarsXeVehicleImageProvider } from "./infrastructure/carsXeVehicleImageProvider.js";
 import { FirebaseAccountAuthStore } from "./infrastructure/firebaseAccountAuthStore.js";
 import { FirebaseAccountDataStore } from "./infrastructure/firebaseAccountDataStore.js";
+import { FirebaseCloudMessagingPushSender } from "./infrastructure/firebaseCloudMessagingPushSender.js";
 import { FirebaseGarageRepository } from "./infrastructure/firebaseGarageRepository.js";
+import { FirebasePushDeviceTokenStore } from "./infrastructure/firebasePushDeviceTokenStore.js";
 import { FirebaseStorageDocumentAttachmentStore } from "./infrastructure/firebaseStorageDocumentAttachmentStore.js";
 import { FirebaseUserRepository } from "./infrastructure/firebaseUserRepository.js";
 import { GeminiInvoiceExtractionProvider } from "./infrastructure/geminiInvoiceExtractionProvider.js";
 import { DeleteAccountUseCase } from "./application/accountDeletion.js";
+import { PushNotificationService } from "./application/pushNotifications.js";
 import { createRouter } from "./interfaces/http/routes.js";
 
 const projectId = process.env.FIREBASE_PROJECT_ID ?? process.env.GCLOUD_PROJECT ?? process.env.GOOGLE_CLOUD_PROJECT ?? "cardocs-app";
@@ -27,6 +30,10 @@ const vehiclePlateProvider = ApiPlacasVehicleDataProvider.fromEnvironment();
 const vehicleImageProvider = CarsXeVehicleImageProvider.fromEnvironment();
 const invoiceExtractionProvider = GeminiInvoiceExtractionProvider.fromEnvironment();
 const documentAttachmentStore = FirebaseStorageDocumentAttachmentStore.fromDefaultBucket();
+const pushNotifications = new PushNotificationService(
+  new FirebasePushDeviceTokenStore(firestore),
+  new FirebaseCloudMessagingPushSender()
+);
 app.use(createRouter(
   new FirebaseGarageRepository(firestore),
   new FirebaseUserRepository(firestore),
@@ -38,7 +45,8 @@ app.use(createRouter(
   vehicleImageProvider,
   invoiceExtractionProvider,
   invoiceExtractionProvider,
-  documentAttachmentStore
+  documentAttachmentStore,
+  pushNotifications
 ));
 app.use(errorHandler);
 
