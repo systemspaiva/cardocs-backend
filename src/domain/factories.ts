@@ -109,6 +109,37 @@ export function toVehicleProfile(
   };
 }
 
+export function toManualVehicleProfile(
+  ownerId: string,
+  input: { kind: string; brand: string; model: string; year: string; color: string; initialMileage: number }
+): VehicleProfile {
+  const brand = input.brand.trim();
+  const model = input.model.trim();
+  const year = input.year.trim();
+  const color = input.color.trim() || "Não informado";
+
+  // Gera um ID determinístico baseado em marca+modelo+ano+owner (sem placa)
+  const id = deterministicUuid("manual-vehicle", `${ownerId}:${brand}:${model}:${year}`.toLowerCase());
+
+  return {
+    id,
+    kind: normalizeKind(input.kind),
+    plate: "MANUAL",
+    maskedPlate: "------",
+    brand,
+    model,
+    year,
+    color,
+    mileage: Math.max(0, Math.trunc(input.initialMileage || 0)),
+    nextServiceTitle: "Primeira organização",
+    nextServiceDistance: "Pronto para importar histórico",
+    statusTags: ["Cadastrado manualmente"],
+    image: null,
+    fipe: null,
+    details: null
+  };
+}
+
 export function pendingHealth(vehicle: VehicleProfile): PartHealth[] {
   return [
     partHealth(vehicle, "oil", "drop", "Oleo e Filtros", "Aguardando primeira nota"),

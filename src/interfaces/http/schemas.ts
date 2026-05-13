@@ -69,6 +69,26 @@ export const vehicleRegistrationSchema = z.object({
   initialMileage: z.number().int().min(0).default(0)
 });
 
+export const manualVehicleRegistrationSchema = z.object({
+  kind: z.string().default("car"),
+  brand: z.string().trim().min(1).max(80),
+  model: z.string().trim().min(1).max(80),
+  year: z.string().trim().min(4).max(10),
+  color: z.string().trim().min(1).max(40).default("Não informado"),
+  initialMileage: z.number().int().min(0).default(0)
+});
+
+export const updateMileageSchema = z.object({
+  vehicleID: vehicleIDSchema,
+  mileage: z.number().int().min(0)
+});
+
+export const updateVehiclePhotoSchema = z.object({
+  vehicleID: vehicleIDSchema,
+  mimeType: z.enum(["image/jpeg", "image/png", "image/webp", "image/heic"]),
+  base64Data: z.string().min(16).max(10_000_000)
+});
+
 export const plateLookupSchema = z.object({
   plate: z.string().min(1)
 });

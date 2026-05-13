@@ -6,6 +6,7 @@ import { DeleteAccountUseCase } from "../../application/accountDeletion.js";
 import { PushNotificationService } from "../../application/pushNotifications.js";
 import {
   generateResaleDossier,
+  toManualVehicleProfile,
   toVehicleProfile
 } from "../../domain/factories.js";
 import { InvoiceDocumentInput, ResaleDossier, VaultDocumentKind } from "../../domain/models.js";
@@ -28,7 +29,10 @@ import {
   vehicleTransferRequestSchema,
   vehicleTransferResponseSchema,
   vehicleImageLookupSchema,
-  vehicleRegistrationSchema
+  vehicleRegistrationSchema,
+  manualVehicleRegistrationSchema,
+  updateMileageSchema,
+  updateVehiclePhotoSchema
 } from "./schemas.js";
 
 interface AuthenticatedRequest extends Request {
@@ -115,6 +119,30 @@ export function createRouter(
     const candidate = await plateLookup.lookup(body.plate);
     const vehicle = toVehicleProfile(requireOwnerId(request), candidate, body.initialMileage, { plateVerified: true });
     response.status(201).json(await repository.saveVehicle(requireOwnerId(request), vehicle));
+  }));
+
+  router.post("/v1/vehicles/manual", asyncHandler(async (request: AuthenticatedRequest, response) => {
+    const body = manualVehicleRegistrationSchema.parse(request.body);
+    const ownerId = requireOwnerId(request);
+    const vehicle = toManualVehicleProfile(ownerId, body);
+    response.status(201).json(await repository.saveVehicle(ownerId, vehicle));
+  }));
+
+  router.post("/v1/vehicles/mileage", asyncHandler(async (request: AuthenticatedRequest, response) => {
+    const body = updateMileageSchema.parse(request.body);
+    const ownerId = requireOwnerId(request);
+    const updated = await repository.updateMileage(ownerId, body.vehicleID, body.mileage);
+    response.json(updated);
+  }));
+
+  router.post("/v1/vehicles/photo", asyncHandler(async (request: AuthenticatedRequest, response) => {
+    const body = updateVehiclePhotoSchema.parse(request.body);
+    const ownerId = requireOwnerId(request);
+    const updated = await repository.updateVehiclePhoto(ownerId, body.vehicleID, {
+      mimeType: body.mimeType,
+      base64Data: body.base64Data
+    });
+    response.json(updated);
   }));
 
   router.post("/v1/invoices/analyze", asyncHandler(async (request, response) => {

@@ -77,6 +77,67 @@ export class FirebaseGarageRepository {
     return vehicle;
   }
 
+  async updateMileage(ownerId: string, vehicleId: string, mileage: number): Promise<VehicleProfile> {
+    const vehicleRef = await this.resolveVehicleRef(ownerId, vehicleId);
+    let updatedVehicle: VehicleProfile | null = null;
+
+    await this.db.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(vehicleRef);
+      if (!snapshot.exists) throw new NotFoundError("Veiculo nao encontrado.");
+      const current = snapshot.data()?.vehicle ?? {};
+      const next = { ...current, mileage: Math.max(0, Math.trunc(mileage)) };
+      updatedVehicle = next as VehicleProfile;
+      transaction.set(vehicleRef, { vehicle: next, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    });
+
+    if (!updatedVehicle) throw new NotFoundError("Veiculo nao encontrado.");
+    return updatedVehicle;
+  }
+
+  async updateVehiclePhoto(
+    ownerId: string,
+    vehicleId: string,
+    photo: { mimeType: string; base64Data: string }
+  ): Promise<VehicleProfile> {
+    const { getStorage } = await import("firebase-admin/storage");
+    const vehicleRef = await this.resolveVehicleRef(ownerId, vehicleId);
+    const snapshot = await vehicleRef.get();
+    if (!snapshot.exists) throw new NotFoundError("Veiculo nao encontrado.");
+
+    const buffer = Buffer.from(photo.base64Data, "base64");
+    const ext = photo.mimeType.split("/")[1]?.replace("jpeg", "jpg") ?? "jpg";
+    const storagePath = `users/${ownerId}/vehicles/${vehicleId}/photo.${ext}`;
+
+    const bucket = getStorage().bucket();
+    const file = bucket.file(storagePath);
+    await file.save(buffer, { contentType: photo.mimeType, resumable: false });
+    await file.makePublic();
+    const publicUrl = `https://storage.googleapis.com/${bucket.name}/${storagePath}`;
+
+    const vehicleImage = {
+      url: publicUrl,
+      thumbnailUrl: null,
+      mime: photo.mimeType,
+      width: null,
+      height: null,
+      accentColor: null,
+      source: "userPhoto"
+    };
+
+    let updatedVehicle: VehicleProfile | null = null;
+    await this.db.runTransaction(async (transaction) => {
+      const snap = await transaction.get(vehicleRef);
+      if (!snap.exists) throw new NotFoundError("Veiculo nao encontrado.");
+      const current = snap.data()?.vehicle ?? {};
+      const next = { ...current, image: vehicleImage };
+      updatedVehicle = next as VehicleProfile;
+      transaction.set(vehicleRef, { vehicle: next, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    });
+
+    if (!updatedVehicle) throw new NotFoundError("Veiculo nao encontrado.");
+    return updatedVehicle;
+  }
+
   async findGarage(ownerId: string, vehicleId: string): Promise<VehicleGarage> {
     const vehicleRef = await this.resolveVehicleRef(ownerId, vehicleId);
     const snapshot = await vehicleRef.get();
