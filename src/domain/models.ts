@@ -22,6 +22,26 @@ export interface LegalAcceptance {
   source: "ios";
 }
 
+export type SubscriptionPlan = "monthly" | "annual";
+
+export interface UserSubscription {
+  plan: SubscriptionPlan;
+  productId: string;
+  expiresAt: string;
+  transactionId: string;
+  originalTransactionId: string;
+  syncedAt: string;
+}
+
+export type UserAccessReason = "freeDays" | "subscription" | "none";
+
+export interface UserAccessStatus {
+  hasAccess: boolean;
+  reason: UserAccessReason;
+  freeDaysUntil: string | null;
+  subscription: UserSubscription | null;
+}
+
 export interface VehicleImage {
   url: string;
   thumbnailUrl?: string | null;

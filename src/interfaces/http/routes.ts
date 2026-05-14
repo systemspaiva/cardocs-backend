@@ -1,9 +1,10 @@
 import { NextFunction, Request, Response, Router } from "express";
-import { randomUUID } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { getAuth, type DecodedIdToken, type UserRecord } from "firebase-admin/auth";
 import { DocumentAttachmentStore } from "../../application/documentAttachments.js";
 import { DeleteAccountUseCase } from "../../application/accountDeletion.js";
 import { PushNotificationService } from "../../application/pushNotifications.js";
+import { SubscriptionTransactionVerifier } from "../../application/subscriptions.js";
 import {
   generateResaleDossier,
   toManualVehicleProfile,
@@ -15,7 +16,7 @@ import { InvoiceAnalysisUseCase, InvoiceDocumentExtractionProvider, InvoiceExtra
 import { VehiclePlateDataProvider, VehiclePlateLookupUseCase } from "../../application/vehiclePlateLookup.js";
 import { FirebaseGarageRepository } from "../../infrastructure/firebaseGarageRepository.js";
 import { FirebaseUserRepository } from "../../infrastructure/firebaseUserRepository.js";
-import { NotFoundError, ProviderNotConfiguredError, UnauthorizedError, ValidationError } from "../../application/errors.js";
+import { ForbiddenError, NotFoundError, ProviderNotConfiguredError, UnauthorizedError, ValidationError } from "../../application/errors.js";
 import {
   createVehicleDocumentSchema,
   invoiceDocumentInputSchema,
@@ -24,6 +25,7 @@ import {
   pushDeviceTokenRemovalSchema,
   resaleDossierRequestSchema,
   saveInvoiceSchema,
+  syncSubscriptionSchema,
   syncUserProfileSchema,
   updateMaintenanceRecordSchema,
   updateVaultDocumentSchema,
@@ -50,7 +52,8 @@ export function createRouter(
   invoiceExtractionProvider: InvoiceExtractionProvider | null = null,
   invoiceDocumentExtractionProvider: InvoiceDocumentExtractionProvider | null = null,
   documentAttachmentStore: DocumentAttachmentStore | null = null,
-  pushNotifications: PushNotificationService | null = null
+  pushNotifications: PushNotificationService | null = null,
+  subscriptionVerifier: SubscriptionTransactionVerifier | null = null
 ): Router {
   const router = Router();
   const plateLookup = new VehiclePlateLookupUseCase(vehiclePlateProvider);
@@ -100,6 +103,28 @@ export function createRouter(
     response.json(await repository.loadDashboard(requireOwnerId(request)));
   }));
 
+  router.get("/v1/subscription/status", asyncHandler(async (request: AuthenticatedRequest, response) => {
+    response.json(await userRepository.getUserAccessStatus(requireOwnerId(request)));
+  }));
+
+  router.post("/v1/subscription/sync", asyncHandler(async (request: AuthenticatedRequest, response) => {
+    const body = syncSubscriptionSchema.parse(request.body);
+    if (!subscriptionVerifier) {
+      throw new ProviderNotConfiguredError("Validador de assinatura da App Store nao configurado.");
+    }
+    const ownerId = requireOwnerId(request);
+    await userRepository.syncSubscription(
+      ownerId,
+      await subscriptionVerifier.verify(body.signedTransactionInfo, appAccountTokenForOwnerId(ownerId))
+    );
+    response.status(204).send();
+  }));
+
+  router.delete("/v1/subscription", asyncHandler(async (request: AuthenticatedRequest, response) => {
+    await userRepository.clearSubscription(requireOwnerId(request));
+    response.status(204).send();
+  }));
+
   router.post("/v1/vehicles/plate-lookup", asyncHandler(async (request, response) => {
     const body = plateLookupSchema.parse(request.body);
     response.json(await plateLookup.lookup(body.plate));
@@ -147,13 +172,18 @@ export function createRouter(
     response.json(updated);
   }));
 
-  router.post("/v1/invoices/analyze", asyncHandler(async (request, response) => {
+  router.post("/v1/invoices/analyze", asyncHandler(async (request: AuthenticatedRequest, response) => {
+    await ensureInvoiceScanAccess(userRepository, requireOwnerId(request));
     const body = invoiceDocumentInputSchema.parse(request.body);
     response.json(await invoiceAnalysis.analyze(body));
   }));
 
   router.post("/v1/invoices", asyncHandler(async (request: AuthenticatedRequest, response) => {
     const body = saveInvoiceSchema.parse(request.body);
+    if (body.draft.source !== "manualEntry" || body.sourceDocument?.document) {
+      await ensureInvoiceScanAccess(userRepository, requireOwnerId(request));
+    }
+
     const result = invoiceAnalysis.toAutomationResult(body.draft);
     if (body.sourceDocument?.document) {
       await repository.ensureVehicleExists(requireOwnerId(request), body.vehicleID);
@@ -317,6 +347,27 @@ function requireAuthToken(request: AuthenticatedRequest): DecodedIdToken {
     throw new UnauthorizedError();
   }
   return request.authToken;
+}
+
+function appAccountTokenForOwnerId(ownerId: string): string {
+  const bytes = Array.from(createHash("sha256").update(ownerId).digest().subarray(0, 16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x50;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Buffer.from(bytes).toString("hex");
+  return [
+    hex.slice(0, 8),
+    hex.slice(8, 12),
+    hex.slice(12, 16),
+    hex.slice(16, 20),
+    hex.slice(20)
+  ].join("-");
+}
+
+async function ensureInvoiceScanAccess(userRepository: FirebaseUserRepository, ownerId: string): Promise<void> {
+  const access = await userRepository.getUserAccessStatus(ownerId);
+  if (!access.hasAccess) {
+    throw new ForbiddenError("Assinatura ativa necessaria para escanear notas fiscais.");
+  }
 }
 
 function toUserProfile(decodedToken: DecodedIdToken, userRecord: UserRecord) {

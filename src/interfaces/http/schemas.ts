@@ -21,6 +21,12 @@ const isoDateStringSchema = z
   .max(64)
   .refine((value) => !Number.isNaN(Date.parse(value)), "Data ISO8601 invalida.");
 
+export const syncSubscriptionSchema = z
+  .object({
+    signedTransactionInfo: z.string().trim().min(64).max(20000)
+  })
+  .strict();
+
 export const syncUserProfileSchema = z
   .object({
     legalAcceptance: z

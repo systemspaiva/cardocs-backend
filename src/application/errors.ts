@@ -26,6 +26,12 @@ export class NotFoundError extends AppError {
   }
 }
 
+export class ForbiddenError extends AppError {
+  constructor(message: string) {
+    super(message, 403, "forbidden");
+  }
+}
+
 export class ProviderNotConfiguredError extends AppError {
   constructor(message: string) {
     super(message, 501, "provider_not_configured");

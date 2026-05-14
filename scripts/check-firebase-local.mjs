@@ -83,6 +83,7 @@ report("NODE_NO_FUNCTIONS_ONREQUEST", !server.includes("onRequest") && !server.i
 const routes = read("src/interfaces/http/routes.ts");
 const schemas = read("src/interfaces/http/schemas.ts");
 const domainModels = read("src/domain/models.ts");
+const appStoreVerifier = read("src/infrastructure/appStoreSubscriptionVerifier.ts");
 const plateProvider = read("src/infrastructure/apiplacasVehicleDataProvider.ts");
 const invoiceUseCase = read("src/application/invoiceAnalysis.ts");
 const geminiProvider = read("src/infrastructure/geminiInvoiceExtractionProvider.ts");
@@ -111,6 +112,11 @@ report(
 report("API_INVOICE_GEMINI_EXPLICITLY_ENABLED", geminiProvider.includes("GEMINI_INVOICE_EXTRACTION_ENABLED") && geminiProvider.includes("GOOGLE_AI_API_KEY") && geminiProvider.includes("GEMINI_API_KEY") && geminiProvider.includes("generativelanguage.googleapis.com"));
 report("API_INVOICE_SAVE_ACCEPTS_FIREBASE_AI_DRAFT", routes.includes("invoiceAnalysis.toAutomationResult(body.draft)") && schemas.includes("draft: invoiceDraftSchema"));
 report("API_INVOICE_SAVE_ACCEPTS_MANUAL_ENTRY", domainModels.includes("InvoiceSource = DocumentSource | \"manualEntry\"") && schemas.includes("\"manualEntry\"") && invoiceUseCase.includes("draft.source === \"manualEntry\""));
+report("API_SUBSCRIPTION_STATUS_ROUTE", routes.includes("router.get(\"/v1/subscription/status\"") && routes.includes("router.post(\"/v1/subscription/sync\"") && schemas.includes("syncSubscriptionSchema"));
+report("API_SUBSCRIPTION_APP_STORE_JWS_VERIFICATION", appStoreVerifier.includes("SignedDataVerifier") && appStoreVerifier.includes("verifyAndDecodeTransaction") && routes.includes("subscriptionVerifier.verify(body.signedTransactionInfo,") && !routes.includes("expiresAt: body.expiresAt"));
+report("API_SUBSCRIPTION_APP_ACCOUNT_TOKEN_BOUND", routes.includes("appAccountTokenForOwnerId(ownerId)") && appStoreVerifier.includes("transaction.appAccountToken") && appStoreVerifier.includes("expectedAppAccountToken"));
+report("API_SUBSCRIPTION_FREE_DAYS_PRIORITY", read("src/infrastructure/firebaseUserRepository.ts").includes("freeDaysUntil") && read("src/infrastructure/firebaseUserRepository.ts").indexOf("reason: \"freeDays\"") < read("src/infrastructure/firebaseUserRepository.ts").indexOf("reason: \"subscription\""));
+report("API_INVOICE_SCAN_REQUIRES_ACCESS", routes.includes("ensureInvoiceScanAccess(userRepository, requireOwnerId(request))") && routes.includes("body.draft.source !== \"manualEntry\" || body.sourceDocument?.document"));
 report("API_INVOICE_SAVE_PERSISTS_AUTOMATION_RESULT", routes.includes("saveAutomationResult(requireOwnerId(request), body.vehicleID, result)"));
 report("API_VEHICLE_TRANSFER_REQUEST_ROUTE", routes.includes("router.post(\"/v1/vehicle-transfers\"") && routes.includes("getAuth().getUserByEmail") && schemas.includes("vehicleTransferRequestSchema"));
 report("API_VEHICLE_TRANSFER_RESPOND_ROUTE", routes.includes("router.post(\"/v1/vehicle-transfers/respond\"") && schemas.includes("vehicleTransferResponseSchema"));
@@ -157,6 +163,9 @@ report("IOS_ACCOUNT_DELETE_CALLS_BACKEND", remoteAuth.includes("deleteAccountAnd
 
 const appView = read("cardocs/Presentation/Views/CarDocsAppView.swift", iosDir);
 const flowSheets = read("cardocs/Presentation/Views/CarDocsFlowSheets.swift", iosDir);
+const subscriptionView = read("cardocs/Presentation/Views/SubscriptionView.swift", iosDir);
+const subscriptionViewModel = read("cardocs/Presentation/ViewModels/SubscriptionViewModel.swift", iosDir);
+const storeKitSubscriptionClient = read("cardocs/Data/StoreKitSubscriptionClient.swift", iosDir);
 report("IOS_PROFILE_OPENS_ACCOUNT_SHEET", appView.includes("isShowingAccountSheet = true") && appView.includes("AccountOptionsSheet"));
 report("IOS_ACCOUNT_SHEET_HAS_SIGN_OUT", flowSheets.includes("Sair da conta") && appView.includes("onSignOut()"));
 report("IOS_ACCOUNT_SHEET_HAS_DELETE_CONFIRMATION", flowSheets.includes("Apagar conta e todos os dados") && flowSheets.includes("uppercased() == \"APAGAR\""));
@@ -174,14 +183,34 @@ report(
     remoteVehicle.includes("draft: draft")
 );
 report("IOS_INVOICE_MANUAL_ENTRY_FLOW", appView.includes("onManualDraft: viewModel.createManualInvoiceDraft") && iosInvoiceFlow.includes("func createManualInvoiceDraft") && flowSheets.includes("Digitar manualmente") && flowSheets.includes("LerNotaManualEntryView"));
-report("IOS_RESALE_FLOW_REQUESTS_TRANSFER_BY_EMAIL", appView.includes("VehicleTransferRequestSheet") && iosInvoiceFlow.includes("func requestVehicleTransfer") && remoteVehicle.includes("/v1/vehicle-transfers") && flowSheets.includes("E-mail do novo dono"));
+report("IOS_SUBSCRIPTION_BOTTOM_TAB", iosInvoiceFlow.includes("case subscription = \"Assinatura\"") && appView.includes("SubscriptionView(viewModel: subscriptionViewModel)") && read("cardocs/Presentation/Components/CarDocsComponents.swift", iosDir).includes("ForEach(CarDocsTab.allCases)"));
+report("IOS_SUBSCRIPTION_STOREKIT_PRODUCTS", storeKitSubscriptionClient.includes("com.paivaapps.cardocs.premium.monthly") && storeKitSubscriptionClient.includes("com.paivaapps.cardocs.premium.annual") && iosInfo.includes("CARDOCS_SUBSCRIPTION_MONTHLY_PRODUCT_ID") && iosInfo.includes("CARDOCS_SUBSCRIPTION_ANNUAL_PRODUCT_ID"));
+report("IOS_SUBSCRIPTION_PRICE_FROM_STOREKIT_ONLY", storeKitSubscriptionClient.includes("displayPrice: product.displayPrice") && !storeKitSubscriptionClient.includes("fallbackPrice") && !read("cardocs/Domain/SubscriptionModels.swift", iosDir).includes("R$"));
+report("IOS_SUBSCRIPTION_PURCHASES_BOUND_TO_ACCOUNT", storeKitSubscriptionClient.includes(".appAccountToken(appAccountToken)") && subscriptionViewModel.includes("updateAppAccountToken") && appView.includes("subscriptionViewModel.updateAppAccountToken(session?.id)"));
+report("IOS_SUBSCRIPTION_FREE_DAYS_BEFORE_STOREKIT", subscriptionViewModel.includes("backendStatus.isOnFreeDays") && subscriptionViewModel.indexOf("backendStatus.isOnFreeDays") < subscriptionViewModel.indexOf("storeKit.currentEntitlement()"));
+report("IOS_SUBSCRIPTION_RESTORE_PURCHASES", storeKitSubscriptionClient.includes("AppStore.sync()") && subscriptionView.includes("Restaurar compras") && subscriptionViewModel.includes("restorePurchases()"));
+report("IOS_INVOICE_SCAN_GATED_BY_SUBSCRIPTION", appView.includes("hasInvoiceScanAccess: subscriptionViewModel.hasInvoiceScanAccess") && appView.includes("onValidateInvoiceScanAccess: subscriptionViewModel.refreshInvoiceScanAccess") && flowSheets.includes("validateFreshInvoiceScanAccess") && flowSheets.includes("onRequestSubscription()") && subscriptionView.includes("7 dias grátis"));
+report("IOS_MANUAL_INVOICE_STAYS_AVAILABLE_WITHOUT_SUBSCRIPTION", flowSheets.includes("onManual: openManualEntry") && flowSheets.includes("Você pode continuar digitando a nota manualmente sem pagar."));
+report(
+  "IOS_RESALE_FLOW_REQUESTS_TRANSFER_BY_EMAIL",
+  appView.includes("VehicleTransferRequestSheet") &&
+    iosInvoiceFlow.includes("func requestVehicleTransfer") &&
+    remoteVehicle.includes("/v1/vehicle-transfers") &&
+    flowSheets.includes("recipientEmail") &&
+    flowSheets.includes("keyboardType: .emailAddress")
+);
 report("IOS_OUTGOING_TRANSFER_REFRESH_AFTER_REQUEST", iosInvoiceFlow.includes("let selectedGarageID = dashboard?.selectedGarageID") && iosInvoiceFlow.includes("repository.loadDashboard()") && iosInvoiceFlow.includes("dashboard = refreshed"));
 report("IOS_INCOMING_TRANSFER_BOTTOM_SHEET", appView.includes("VehicleTransferAcceptanceSheet") && iosInvoiceFlow.includes("func respondToVehicleTransfer") && read("cardocs/Domain/VehicleModels.swift", iosDir).includes("incomingVehicleTransfers"));
 report("IOS_TRANSFER_STATUS_TAB", iosInvoiceFlow.includes("case transfers = \"Transferências\"") && appView.includes("case .transfers") && appView.includes("TransfersView"));
 report("IOS_INCOMING_TRANSFER_HISTORY_SCREEN", appView.includes("IncomingTransferStatusSection") && appView.includes("onRespondToIncomingTransfer") && iosInvoiceFlow.includes("func openIncomingTransfer") && iosInvoiceFlow.includes("first { $0.status == .pending }"));
-report("IOS_EMPTY_GARAGE_TRANSFER_STATUS_SCROLL_REFRESH", appView.includes("EmptyGarageView(") && appView.includes("incomingTransfers: dashboard.incomingVehicleTransfers") && appView.includes(".refreshable {\n                    await viewModel.refreshDashboard()"));
+report("IOS_EMPTY_GARAGE_TRANSFER_STATUS_SCROLL_REFRESH", appView.includes("EmptyGarageView(") && appView.includes("incomingTransfers: dashboard.incomingVehicleTransfers") && appView.includes(".refreshable {") && appView.includes("await viewModel.refreshDashboard()"));
 report("IOS_ACCEPTED_TRANSFER_SELECTS_RECEIVED_VEHICLE", iosInvoiceFlow.includes("updatedDashboard.selectGarage(id: result.transfer.vehicleID)") && iosInvoiceFlow.includes("presentIncomingVehicleTransferIfNeeded(from: updatedDashboard)"));
-report("IOS_OUTGOING_TRANSFER_STATUS_SECTION", flowSheets.includes("Transferências enviadas") && flowSheets.includes("OutgoingVehicleTransfer") && read("cardocs/Domain/VehicleModels.swift", iosDir).includes("outgoingVehicleTransfers"));
+report(
+  "IOS_OUTGOING_TRANSFER_STATUS_SECTION",
+  appView.includes("OutgoingTransferStatusSection") &&
+    appView.includes("OutgoingVehicleTransfer") &&
+    read("cardocs/Domain/VehicleModels.swift", iosDir).includes("outgoingVehicleTransfers")
+);
 report("IOS_PUSH_TOKEN_REGISTERS_WITH_BACKEND", iosPushRegistration.includes("FirebaseMessaging") && iosPushRegistration.includes("UNUserNotificationCenter") && iosPushRegistration.includes("/v1/device-tokens") && iosPushRegistration.includes("/v1/device-tokens/remove"));
 report("IOS_PUSH_REFRESHES_DASHBOARD", iosPushRegistration.includes("didReceive response: UNNotificationResponse") && iosPushRegistration.includes("carDocsPushNotificationReceived") && read("cardocs/ContentView.swift", iosDir).includes("carDocsViewModel.refreshDashboard()"));
 report("IOS_NO_MOCK_REPOSITORIES", !existsSync(path.resolve(iosDir, "cardocs/Data/MockAuthRepository.swift")) && !existsSync(path.resolve(iosDir, "cardocs/Data/MockVehicleRepository.swift")));

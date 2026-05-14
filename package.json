@@ -23,6 +23,7 @@
     "verify:local": "npm run build && npm run check:no-sensitive-files && npm run check:firebase-local && npm run verify:server"
   },
   "dependencies": {
+    "@apple/app-store-server-library": "^3.1.0",
     "express": "5.2.1",
     "firebase-admin": "13.9.0",
     "zod": "4.4.3"
