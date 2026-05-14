@@ -24,6 +24,7 @@ import {
   pushDeviceTokenRemovalSchema,
   resaleDossierRequestSchema,
   saveInvoiceSchema,
+  syncUserProfileSchema,
   updateMaintenanceRecordSchema,
   updateVaultDocumentSchema,
   vehicleTransferRequestSchema,
@@ -72,9 +73,10 @@ export function createRouter(
   router.use("/v1", asyncHandler(authenticateFirebaseToken));
 
   router.post("/v1/me", asyncHandler(async (request: AuthenticatedRequest, response) => {
+    const body = syncUserProfileSchema.parse(request.body ?? {});
     const authToken = requireAuthToken(request);
     const userRecord = await getAuth().getUser(authToken.uid);
-    response.json(await userRepository.upsertFromAuth(toUserProfile(authToken, userRecord)));
+    response.json(await userRepository.upsertFromAuth(toUserProfile(authToken, userRecord), body.legalAcceptance));
   }));
 
   router.delete("/v1/me", asyncHandler(async (request: AuthenticatedRequest, response) => {

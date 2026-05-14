@@ -13,6 +13,26 @@ const optionalNullableLongTextSchema = z.string().trim().max(2000).nullable().op
 const documentSourceSchema = z.enum(["cameraScan", "fileImport", "photoLibrary"]);
 const invoiceSourceSchema = z.enum(["cameraScan", "fileImport", "photoLibrary", "manualEntry"]);
 const pushDeviceTokenSchema = z.string().trim().min(16).max(4096);
+const legalDocumentVersionSchema = z.string().trim().min(1).max(80);
+const isoDateStringSchema = z
+  .string()
+  .trim()
+  .min(10)
+  .max(64)
+  .refine((value) => !Number.isNaN(Date.parse(value)), "Data ISO8601 invalida.");
+
+export const syncUserProfileSchema = z
+  .object({
+    legalAcceptance: z
+      .object({
+        termsVersion: legalDocumentVersionSchema,
+        privacyVersion: legalDocumentVersionSchema,
+        acceptedAt: isoDateStringSchema,
+        source: z.enum(["ios"])
+      })
+      .optional()
+  })
+  .strict();
 
 export const vehicleImageSchema = z.object({
   url: z.string().url(),

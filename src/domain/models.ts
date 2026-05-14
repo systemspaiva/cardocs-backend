@@ -15,6 +15,13 @@ export interface UserProfile {
   providerIds: string[];
 }
 
+export interface LegalAcceptance {
+  termsVersion: string;
+  privacyVersion: string;
+  acceptedAt: string;
+  source: "ios";
+}
+
 export interface VehicleImage {
   url: string;
   thumbnailUrl?: string | null;
