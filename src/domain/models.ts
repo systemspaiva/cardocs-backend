@@ -4,6 +4,7 @@ export type DocumentSource = "cameraScan" | "fileImport" | "photoLibrary";
 export type InvoiceSource = DocumentSource | "manualEntry";
 export type VaultDocumentKind = "expenseReceipt" | "vehicleDocument";
 export type VehicleTransferStatus = "pending" | "accepted" | "declined";
+export type InsurancePremiumPeriod = "monthly" | "annual";
 
 export interface UserProfile {
   id: string;
@@ -106,6 +107,17 @@ export interface InvestmentSummary {
   documentsAndTaxes: number;
 }
 
+export interface VehicleInsurance {
+  insurerName: string;
+  premiumAmount: number;
+  premiumPeriod: InsurancePremiumPeriod;
+  coverages: string;
+  deductibleAmount?: number | null;
+  deductibleNotes?: string | null;
+  validUntil: string;
+  updatedAt: string;
+}
+
 export interface MaintenanceRecord {
   id: string;
   iconName: string;
@@ -137,6 +149,7 @@ export interface PartHealth {
 export interface PartReplacementRecord {
   id: string;
   partName: string;
+  brandName?: string | null;
   serviceTitle: string;
   iconName: string;
   serviceDate: string;
@@ -144,6 +157,8 @@ export interface PartReplacementRecord {
   mileageAtService: number;
   lifeKm?: number | null;
   lifeMonths?: number | null;
+  scheduledRevisionMileage?: number | null;
+  scheduledRevisionWorkshopKind?: "dealership" | "other" | null;
   maintenanceRecordID: string;
 }
 
@@ -207,6 +222,7 @@ export interface VehicleGarage {
   timeline: MaintenanceRecord[];
   healthItems: PartHealth[];
   vaultDocuments: VaultDocument[];
+  insurance?: VehicleInsurance | null;
   resaleDossier: ResaleDossier;
 }
 

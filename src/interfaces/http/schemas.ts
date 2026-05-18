@@ -23,6 +23,15 @@ const maintenanceDateSchema = z
     const date = parseMaintenanceDate(value);
     return date !== null && date.getTime() <= endOfToday().getTime();
   }, "Data de manutencao invalida.");
+const validityDateSchema = z
+  .string()
+  .trim()
+  .min(8)
+  .max(20)
+  .refine((value) => {
+    const dateKey = maintenanceInputDateKey(value);
+    return dateKey !== null && dateKey >= todayDateKeyInSaoPaulo();
+  }, "Data de validade invalida.");
 const isoDateStringSchema = z
   .string()
   .trim()
@@ -49,6 +58,39 @@ function endOfToday(): Date {
   const date = new Date();
   date.setHours(23, 59, 59, 999);
   return date;
+}
+
+function maintenanceInputDateKey(value: string): number | null {
+  const brMatch = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(value);
+  if (brMatch) {
+    const [, day, month, year] = brMatch.map(Number);
+    const date = new Date(year, month - 1, day);
+    if (date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day) {
+      return year * 10_000 + month * 100 + day;
+    }
+    return null;
+  }
+
+  const timestamp = Date.parse(value);
+  if (Number.isNaN(timestamp)) return null;
+  return saoPauloDateKey(new Date(timestamp));
+}
+
+function todayDateKeyInSaoPaulo(): number {
+  return saoPauloDateKey(new Date());
+}
+
+function saoPauloDateKey(date: Date): number {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(date);
+  const year = Number(parts.find((part) => part.type === "year")?.value ?? "0");
+  const month = Number(parts.find((part) => part.type === "month")?.value ?? "0");
+  const day = Number(parts.find((part) => part.type === "day")?.value ?? "0");
+  return year * 10_000 + month * 100 + day;
 }
 
 export const syncSubscriptionSchema = z
@@ -284,9 +326,12 @@ export const saveInvoiceSchema = z.object({
 export const createPartReplacementSchema = z.object({
   vehicleID: vehicleIDSchema,
   partName: z.string().trim().min(2).max(80),
+  brandName: z.string().trim().min(1).max(80).nullable().optional(),
   amount: moneyNumberSchema.min(0).default(0),
   serviceDate: maintenanceDateSchema,
   mileageAtService: nonNegativeIntegerSchema,
+  scheduledRevisionMileage: nonNegativeIntegerSchema.nullable().optional(),
+  scheduledRevisionWorkshopKind: z.enum(["dealership", "other"]).nullable().optional(),
   lifeKm: z.coerce.number().int().positive().max(500_000).nullable().optional(),
   lifeMonths: z.coerce.number().int().positive().max(240).nullable().optional()
 }).superRefine((input, context) => {
@@ -297,10 +342,37 @@ export const createPartReplacementSchema = z.object({
       message: "Informe a vida util em km ou meses."
     });
   }
+  const hasRevisionMileage = input.scheduledRevisionMileage !== undefined && input.scheduledRevisionMileage !== null;
+  const hasWorkshopKind = input.scheduledRevisionWorkshopKind !== undefined && input.scheduledRevisionWorkshopKind !== null;
+  if (hasRevisionMileage !== hasWorkshopKind) {
+    context.addIssue({
+      code: "custom",
+      path: ["scheduledRevisionMileage"],
+      message: "Informe a quilometragem e o tipo de oficina da revisao."
+    });
+  }
+  if (hasRevisionMileage && (input.scheduledRevisionMileage! <= 0 || input.scheduledRevisionMileage! % 10_000 !== 0)) {
+    context.addIssue({
+      code: "custom",
+      path: ["scheduledRevisionMileage"],
+      message: "A revisao deve seguir a agenda de 10.000 km."
+    });
+  }
 });
 
 export const partReplacementRecommendationSchema = z.object({
   partName: z.string().trim().min(2).max(80)
+});
+
+export const createVehicleInsuranceSchema = z.object({
+  vehicleID: vehicleIDSchema,
+  insurerName: z.string().trim().min(2).max(120),
+  premiumAmount: positiveMoneyNumberSchema,
+  premiumPeriod: z.enum(["monthly", "annual"]),
+  coverages: z.string().trim().min(2).max(1200),
+  deductibleAmount: moneyNumberSchema.min(0).nullable().optional(),
+  deductibleNotes: z.string().trim().max(800).nullable().optional(),
+  validUntil: validityDateSchema
 });
 
 export const resaleDossierRequestSchema = z.object({

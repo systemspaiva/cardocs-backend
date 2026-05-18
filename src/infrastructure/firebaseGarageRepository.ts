@@ -11,6 +11,7 @@ import {
   VehicleFipeQuote,
   VehicleDashboard,
   VehicleGarage,
+  VehicleInsurance,
   VehiclePlateDetails,
   VehicleProfile,
   VehicleTransferDecisionResult,
@@ -194,9 +195,12 @@ export class FirebaseGarageRepository {
   async savePartReplacement(ownerId: string, input: {
     vehicleID: string;
     partName: string;
+    brandName?: string | null;
     amount: number;
     serviceDate: string;
     mileageAtService: number;
+    scheduledRevisionMileage?: number | null;
+    scheduledRevisionWorkshopKind?: "dealership" | "other" | null;
     lifeKm?: number | null;
     lifeMonths?: number | null;
   }): Promise<VehicleDashboard> {
@@ -213,10 +217,28 @@ export class FirebaseGarageRepository {
     const amount = roundMoney(safeMoney(input.amount));
     const mileageAtService = Math.max(0, Math.trunc(input.mileageAtService));
     const serviceTitle = `Troca de ${partName}`;
-    const purchaseSummary = maintenancePlanSummary(input.lifeKm ?? null, input.lifeMonths ?? null);
+    const brandName = nullableStringValue(input.brandName);
+    const scheduledRevisionMileage = nullableNumberValue(input.scheduledRevisionMileage);
+    const scheduledRevisionWorkshopKind = input.scheduledRevisionWorkshopKind === "dealership" || input.scheduledRevisionWorkshopKind === "other"
+      ? input.scheduledRevisionWorkshopKind
+      : null;
+
+    let purchaseSummary = maintenancePlanSummary(input.lifeKm ?? null, input.lifeMonths ?? null);
+    let recordSubtitle = brandName ? `${brandName} - ${purchaseSummary}` : purchaseSummary;
+
+    if (scheduledRevisionMileage && scheduledRevisionWorkshopKind) {
+      const workshopLabel = scheduledRevisionWorkshopKind === "dealership" ? "Concessionária" : "Oficina";
+      const revisionSummary = `Revisão de ${scheduledRevisionMileage.toLocaleString("pt-BR")} km em ${workshopLabel}`;
+      recordSubtitle = revisionSummary;
+      purchaseSummary = `${brandName ? `Marca: ${brandName}. ` : ""}${purchaseSummary}. ${revisionSummary}`;
+    } else if (brandName) {
+      purchaseSummary = `Marca: ${brandName}. ${purchaseSummary}`;
+    }
+
     const replacement: PartReplacementRecord = {
       id: replacementId,
       partName,
+      brandName,
       serviceTitle,
       iconName,
       serviceDate: input.serviceDate,
@@ -224,13 +246,15 @@ export class FirebaseGarageRepository {
       mileageAtService,
       lifeKm: input.lifeKm ?? null,
       lifeMonths: input.lifeMonths ?? null,
+      scheduledRevisionMileage,
+      scheduledRevisionWorkshopKind,
       maintenanceRecordID: recordId
     };
     const record: MaintenanceRecord = {
       id: recordId,
       iconName,
       title: serviceTitle,
-      subtitle: purchaseSummary,
+      subtitle: recordSubtitle,
       date: input.serviceDate,
       amount,
       isAIValidated: false,
@@ -275,6 +299,59 @@ export class FirebaseGarageRepository {
         },
         { merge: true }
       );
+    });
+
+    return this.loadDashboard(ownerId);
+  }
+
+  async saveVehicleInsurance(ownerId: string, input: {
+    vehicleID: string;
+    insurerName: string;
+    premiumAmount: number;
+    premiumPeriod: "monthly" | "annual";
+    coverages: string;
+    deductibleAmount?: number | null;
+    deductibleNotes?: string | null;
+    validUntil: string;
+  }): Promise<VehicleDashboard> {
+    const vehicleRef = await this.resolveVehicleRef(ownerId, input.vehicleID);
+    const insurance: VehicleInsurance = {
+      insurerName: cleanLabel(input.insurerName, "Seguradora"),
+      premiumAmount: roundMoney(safeMoney(input.premiumAmount)),
+      premiumPeriod: input.premiumPeriod === "annual" ? "annual" : "monthly",
+      coverages: cleanLabel(input.coverages, "Coberturas informadas manualmente"),
+      deductibleAmount: nullableNumberValue(input.deductibleAmount),
+      deductibleNotes: nullableStringValue(input.deductibleNotes),
+      validUntil: input.validUntil,
+      updatedAt: new Date().toISOString()
+    };
+
+    await this.db.runTransaction(async (transaction) => {
+      const [vehicleDoc, timelineSnapshot, documentSnapshot] = await Promise.all([
+        transaction.get(vehicleRef),
+        transaction.get(vehicleRef.collection("timeline")),
+        transaction.get(vehicleRef.collection("vaultDocuments"))
+      ]);
+      if (!vehicleDoc.exists) {
+        throw new NotFoundError("Veiculo nao encontrado para salvar seguro.");
+      }
+
+      const vehicle = toVehicleProfile(vehicleDoc.data()?.vehicle, vehicleRef.id, { idOverride: vehicleRef.id });
+      const timeline = timelineSnapshot.docs.map((doc) => toMaintenanceRecord(doc.data(), doc.id));
+      const vaultDocuments = documentSnapshot.docs.map((doc) => toVaultDocument(doc.data(), doc.id));
+      const dossier = generateResaleDossier(vehicle, { timeline, vaultDocuments, insurance });
+      const slug = publicReportSlug(vehicle);
+
+      transaction.set(
+        vehicleRef,
+        {
+          insurance,
+          updatedAt: FieldValue.serverTimestamp()
+        },
+        { merge: true }
+      );
+      transaction.set(vehicleRef.collection("dossiers").doc("current"), withTimestamps(dossier, false), { merge: true });
+      transaction.set(this.db.collection("publicReports").doc(slug), withTimestamps(dossier, false), { merge: true });
     });
 
     return this.loadDashboard(ownerId);
@@ -559,6 +636,7 @@ export class FirebaseGarageRepository {
     const timeline = timelineSnapshot.docs.map((doc) => toMaintenanceRecord(doc.data(), doc.id));
     const vaultDocuments = documentSnapshot.docs.map((doc) => toVaultDocument(doc.data(), doc.id));
     const partReplacements = replacementSnapshot.docs.map((doc) => toPartReplacementRecord(doc.data(), doc.id));
+    const insurance = toVehicleInsurance(data.insurance);
     const garageBase = {
       id: vehicleId,
       vehicle,
@@ -566,7 +644,8 @@ export class FirebaseGarageRepository {
       timeline,
       healthItems: calculatePartHealth(vehicle, partReplacements),
       vaultDocuments,
-      resaleDossier: generateResaleDossier(vehicle, { timeline, vaultDocuments })
+      insurance,
+      resaleDossier: generateResaleDossier(vehicle, { timeline, vaultDocuments, insurance })
     };
 
     return {
@@ -765,6 +844,24 @@ function toInvestmentSummary(value: unknown): InvestmentSummary {
   };
 }
 
+function toVehicleInsurance(value: unknown): VehicleInsurance | null {
+  const data = value as Partial<VehicleInsurance> | undefined;
+  if (!data) return null;
+
+  const insurance: VehicleInsurance = {
+    insurerName: stringValue(data.insurerName),
+    premiumAmount: numberValue(data.premiumAmount),
+    premiumPeriod: data.premiumPeriod === "annual" ? "annual" : "monthly",
+    coverages: stringValue(data.coverages),
+    deductibleAmount: nullableNumberValue(data.deductibleAmount),
+    deductibleNotes: nullableStringValue(data.deductibleNotes),
+    validUntil: stringValue(data.validUntil),
+    updatedAt: stringValue(data.updatedAt)
+  };
+
+  return insurance.insurerName && insurance.validUntil ? insurance : null;
+}
+
 function toMaintenanceRecord(value: FirebaseFirestore.DocumentData, fallbackId: string): MaintenanceRecord {
   const title = stringValue(value.title);
   const subtitle = stringValue(value.subtitle);
@@ -791,6 +888,7 @@ function toPartReplacementRecord(value: FirebaseFirestore.DocumentData, fallback
   return {
     id: stringValue(value.id, fallbackId),
     partName,
+    brandName: nullableStringValue(value.brandName),
     serviceTitle: cleanLabel(value.serviceTitle, partName),
     iconName: stringValue(value.iconName, iconNameForPartName(partName)),
     serviceDate: stringValue(value.serviceDate),
@@ -798,6 +896,10 @@ function toPartReplacementRecord(value: FirebaseFirestore.DocumentData, fallback
     mileageAtService: numberValue(value.mileageAtService),
     lifeKm: nullableNumberValue(value.lifeKm),
     lifeMonths: nullableNumberValue(value.lifeMonths),
+    scheduledRevisionMileage: nullableNumberValue(value.scheduledRevisionMileage),
+    scheduledRevisionWorkshopKind: value.scheduledRevisionWorkshopKind === "dealership" || value.scheduledRevisionWorkshopKind === "other"
+      ? value.scheduledRevisionWorkshopKind
+      : null,
     maintenanceRecordID: stringValue(value.maintenanceRecordID)
   };
 }

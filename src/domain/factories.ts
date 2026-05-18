@@ -6,6 +6,7 @@ import {
   ResaleDossier,
   VehicleCandidate,
   VehicleGarage,
+  VehicleInsurance,
   VehicleKind,
   VehicleProfile
 } from "./models.js";
@@ -186,15 +187,16 @@ export function iconNameForPartName(value: string): string {
 
 export function generateResaleDossier(
   vehicle: VehicleProfile,
-  garage: Pick<VehicleGarage, "timeline" | "vaultDocuments">,
+  garage: Pick<VehicleGarage, "timeline" | "vaultDocuments"> & { insurance?: VehicleInsurance | null },
   publicReportBaseURL = "https://cardocs-backend-5qq5b33fha-rj.a.run.app"
 ): ResaleDossier {
   const hasHistory = garage.timeline.length > 0 || garage.vaultDocuments.length > 0;
+  const hasInsurance = Boolean(garage.insurance?.insurerName);
   const slug = publicReportSlug(vehicle);
   const maintenanceTotal = garage.timeline.reduce((sum, record) => sum + safeMoney(record.amount), 0);
   const documentCount = garage.vaultDocuments.length;
   const estimatedIncrease = hasHistory ? roundMoney(maintenanceTotal * 0.2) : 0;
-  const score = hasHistory ? Math.min(96, Math.max(50, 50 + garage.timeline.length * 8 + documentCount * 10)) : 42;
+  const score = hasHistory ? Math.min(96, Math.max(50, 50 + garage.timeline.length * 8 + documentCount * 10 + (hasInsurance ? 8 : 0))) : 42;
 
   return {
     title: hasHistory ? "Dossie CarDocs" : "Dossie em preparo",
@@ -222,10 +224,16 @@ export function generateResaleDossier(
         iconName: "chart.line.uptrend.xyaxis",
         title: "Valorizacao",
         value: hasHistory ? `+${estimatedIncrease.toFixed(2)}` : "Pendente"
+      },
+      {
+        id: deterministicUuid("resale-highlight", `${slug}:insurance`),
+        iconName: "shield.lefthalf.filled",
+        title: "Seguro",
+        value: hasInsurance ? garage.insurance!.insurerName : "Nao informado"
       }
     ],
     checks: hasHistory ?
-      ["Placa cadastrada", "Manutencoes registradas", "Documentos centralizados"] :
+      ["Placa cadastrada", "Manutencoes registradas", "Documentos centralizados", ...(hasInsurance ? ["Seguro registrado"] : [])] :
       ["Placa cadastrada", "Aguardando notas fiscais", "Aguardando documentos"],
     reportSections: [
       {
@@ -254,6 +262,15 @@ export function generateResaleDossier(
         detail: hasHistory ?
           "Relatorio publico gerado a partir dos dados salvos no CarDocs." :
           "O link sera mais forte quando houver documentos validados."
+      },
+      {
+        id: deterministicUuid("resale-section", `${slug}:insurance`),
+        iconName: "shield.checkered",
+        title: "Seguro do veiculo",
+        status: hasInsurance ? "Registrado" : "Pendente",
+        detail: hasInsurance ?
+          `${garage.insurance!.insurerName} ate ${garage.insurance!.validUntil}.` :
+          "Adicione seguradora, coberturas, franquias e validade para completar o dossie."
       }
     ]
   };

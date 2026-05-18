@@ -20,6 +20,7 @@ import { FirebaseUserRepository } from "../../infrastructure/firebaseUserReposit
 import { ForbiddenError, NotFoundError, ProviderNotConfiguredError, UnauthorizedError, ValidationError } from "../../application/errors.js";
 import {
   createPartReplacementSchema,
+  createVehicleInsuranceSchema,
   createVehicleDocumentSchema,
   invoiceDocumentInputSchema,
   partReplacementRecommendationSchema,
@@ -215,6 +216,11 @@ export function createRouter(
     const ownerId = requireOwnerId(request);
     const canUseAi = !partRecommendationProvider || await hasPartRecommendationAiAccess(userRepository, ownerId);
     response.json(await partRecommendations.recommend(body, { useProvider: canUseAi }));
+  }));
+
+  router.post("/v1/vehicle-insurance", asyncHandler(async (request: AuthenticatedRequest, response) => {
+    const body = createVehicleInsuranceSchema.parse(request.body);
+    response.status(201).json(await repository.saveVehicleInsurance(requireOwnerId(request), body));
   }));
 
   router.post("/v1/documents", asyncHandler(async (request: AuthenticatedRequest, response) => {
