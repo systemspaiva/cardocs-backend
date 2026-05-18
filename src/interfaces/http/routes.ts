@@ -4,7 +4,7 @@ import { getAuth, type DecodedIdToken, type UserRecord } from "firebase-admin/au
 import { DocumentAttachmentStore } from "../../application/documentAttachments.js";
 import { DeleteAccountUseCase } from "../../application/accountDeletion.js";
 import { PushNotificationService } from "../../application/pushNotifications.js";
-import { PartReplacementRecommendationProvider, PartReplacementRecommendationUseCase } from "../../application/partReplacementRecommendation.js";
+import { CardocsIaGateway } from "../../application/cardocsIaGateway.js";
 import { SubscriptionTransactionVerifier } from "../../application/subscriptions.js";
 import {
   generateResaleDossier,
@@ -13,7 +13,7 @@ import {
 } from "../../domain/factories.js";
 import { InvoiceDocumentInput, ResaleDossier, VaultDocumentKind } from "../../domain/models.js";
 import { VehicleImageLookupUseCase, VehicleImageProvider } from "../../application/vehicleImageLookup.js";
-import { InvoiceAnalysisUseCase, InvoiceDocumentExtractionProvider, InvoiceExtractionProvider } from "../../application/invoiceAnalysis.js";
+import { InvoiceAnalysisUseCase } from "../../application/invoiceAnalysis.js";
 import { VehiclePlateDataProvider, VehiclePlateLookupUseCase } from "../../application/vehiclePlateLookup.js";
 import { FirebaseGarageRepository } from "../../infrastructure/firebaseGarageRepository.js";
 import { FirebaseUserRepository } from "../../infrastructure/firebaseUserRepository.js";
@@ -56,18 +56,15 @@ export function createRouter(
   accountDeletion: DeleteAccountUseCase,
   vehiclePlateProvider: VehiclePlateDataProvider | null = null,
   vehicleImageProvider: VehicleImageProvider | null = null,
-  invoiceExtractionProvider: InvoiceExtractionProvider | null = null,
-  invoiceDocumentExtractionProvider: InvoiceDocumentExtractionProvider | null = null,
+  cardocsIa: CardocsIaGateway | null = null,
   documentAttachmentStore: DocumentAttachmentStore | null = null,
   pushNotifications: PushNotificationService | null = null,
-  subscriptionVerifier: SubscriptionTransactionVerifier | null = null,
-  partRecommendationProvider: PartReplacementRecommendationProvider | null = null
+  subscriptionVerifier: SubscriptionTransactionVerifier | null = null
 ): Router {
   const router = Router();
   const plateLookup = new VehiclePlateLookupUseCase(vehiclePlateProvider);
   const imageLookup = new VehicleImageLookupUseCase(vehicleImageProvider);
-  const invoiceAnalysis = new InvoiceAnalysisUseCase(invoiceExtractionProvider, invoiceDocumentExtractionProvider);
-  const partRecommendations = new PartReplacementRecommendationUseCase(partRecommendationProvider);
+  const invoiceAnalysis = new InvoiceAnalysisUseCase();
 
   router.get("/v1/health", (_request, response) => {
     response.json({ status: "UP", runtime: "node" });
@@ -207,7 +204,7 @@ export function createRouter(
   router.post("/v1/invoices/analyze", asyncHandler(async (request: AuthenticatedRequest, response) => {
     await ensureInvoiceScanAccess(userRepository, requireOwnerId(request));
     const body = invoiceDocumentInputSchema.parse(request.body);
-    response.json(await invoiceAnalysis.analyze(body));
+    response.json(await requireCardocsIa(cardocsIa).analyzeInvoice(body));
   }));
 
   router.post("/v1/invoices", asyncHandler(async (request: AuthenticatedRequest, response) => {
@@ -240,8 +237,11 @@ export function createRouter(
   router.post("/v1/part-replacements/recommendation", asyncHandler(async (request: AuthenticatedRequest, response) => {
     const body = partReplacementRecommendationSchema.parse(request.body);
     const ownerId = requireOwnerId(request);
-    const canUseAi = !partRecommendationProvider || await hasPartRecommendationAiAccess(userRepository, ownerId);
-    response.json(await partRecommendations.recommend(body, { useProvider: canUseAi }));
+    const canUseAi = await hasPartRecommendationAiAccess(userRepository, ownerId);
+    response.json(await requireCardocsIa(cardocsIa).recommendPartReplacement({
+      partName: body.partName,
+      useProvider: canUseAi
+    }));
   }));
 
   router.post("/v1/vehicle-insurance", asyncHandler(async (request: AuthenticatedRequest, response) => {
@@ -396,6 +396,13 @@ function requireAuthToken(request: AuthenticatedRequest): DecodedIdToken {
     throw new UnauthorizedError();
   }
   return request.authToken;
+}
+
+function requireCardocsIa(cardocsIa: CardocsIaGateway | null): CardocsIaGateway {
+  if (!cardocsIa) {
+    throw new ProviderNotConfiguredError("Backend de IA ainda nao configurado.");
+  }
+  return cardocsIa;
 }
 
 function appAccountTokenForOwnerId(ownerId: string): string {

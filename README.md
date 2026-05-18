@@ -4,7 +4,8 @@ Backend Node.js/Express para o app iOS CarDocs, publicado diretamente no Cloud R
 
 ## Stack Atual
 
-- Cloud Run como única entrada HTTPS do backend (`https://cardocs-backend-5qq5b33fha-rj.a.run.app`).
+- Cloud Run como única entrada HTTPS pública do backend (`https://cardocs-backend-5qq5b33fha-rj.a.run.app`).
+- `cardocs-ia` como backend interno privado para execução de IA.
 - Firebase Auth para autenticação do app iOS.
 - Firestore como banco de dados operacional.
 
@@ -63,9 +64,9 @@ Authorization: Bearer <Firebase ID token>
 
 `vehicles/image` consulta a CarsXE pelo backend quando `CARSXE_API_KEY` está configurada e retorna a melhor imagem real disponível para marca, modelo e ano. Quando a CarsXE não encontra imagens, a rota retorna `404` sem persistir dados fictícios no Firestore.
 
-O app iOS prepara imagem/PDF e envia o documento para `/v1/invoices/analyze`. O backend roda um flow Genkit com Google AI/Gemini para gerar a revisão estruturada, sem embutir Gemini API key no bundle e mantendo prompt/schema/classificação em um único lugar.
+O app iOS prepara imagem/PDF e envia o documento para `/v1/invoices/analyze`. O backend valida Firebase Auth e assinatura, então delega a leitura para o serviço privado `cardocs-ia`, sem embutir Gemini API key no bundle.
 
-`invoices/analyze` continua disponível como rota de compatibilidade para análise backend de texto/documento, mas o fluxo principal do app iOS não depende mais dela.
+`invoices/analyze` continua disponível como rota pública de compatibilidade para o app iOS. A execução de IA, prompts, schemas de extração e classificação de `vehicleService`, `partOrProduct` ou `unknown` ficam no `cardocs-ia`.
 
 `POST /v1/invoices` recebe `vehicleID` e o `draft` estruturado pela análise do backend. O backend valida o schema do draft, gera o `AutomationResult` no servidor e só então persiste o histórico/cofre no Firestore.
 
@@ -115,16 +116,14 @@ export CARSXE_BASE_URL="https://api.carsxe.com"
 
 Não versione nem imprima a chave da CarsXE. Em deploy, configure esse valor como secret/variável protegida do ambiente.
 
-Extração de notas com Genkit + Google AI/Gemini no backend:
+Integração com o backend privado de IA:
 
 ```bash
-export GENKIT_INVOICE_EXTRACTION_ENABLED="true"
-export GOOGLE_AI_API_KEY="<chave configurada fora do repositorio>"
-export GENKIT_INVOICE_MODEL="gemini-3-flash-preview"
-export GENKIT_INVOICE_TIMEOUT_MS="30000"
+export CARDOCS_IA_BASE_URL="https://cardocs-ia-....a.run.app"
+export CARDOCS_IA_TIMEOUT_MS="30000"
 ```
 
-`GEMINI_INVOICE_*` e `GEMINI_API_KEY` continuam aceitos como fallback para deploys existentes. Não versione nem imprima a chave do Gemini. O app envia a nota preparada para `/v1/invoices/analyze`; o backend concentra prompt, schema e classificação de `vehicleService`, `partOrProduct` ou `unknown` no fluxo Genkit. O backend habilita Firebase Genkit Monitoring para traces/métricas, mas com logging de entrada/saída desativado para não persistir conteúdo sensível de notas. Quando a entrada vier apenas como OCR, o backend aplica redaction básica de CPF/CNPJ/chave de acesso/contatos antes da chamada externa.
+O `cardocs-backend` não carrega Genkit/Gemini localmente. Em Cloud Run, a chamada ao `cardocs-ia` usa identidade de serviço/IAM por ID token. Não configure chave Gemini neste backend; ela pertence exclusivamente ao ambiente do `cardocs-ia`.
 
 Os scripts de deploy bloqueiam execução fora do alvo `develop` e fora da branch `develop`. Enquanto o repositório local estiver em `main`, eles não publicam.
 
@@ -178,6 +177,7 @@ Quando o deploy for autorizado, o fluxo esperado exige confirmação explícita 
 export FIREBASE_PROJECT_ID="cardocs-app"
 export CARDOCS_ALLOW_DEPLOY=1
 export CARDOCS_DEPLOY_TARGET=develop
+export CARDOCS_IA_BASE_URL="https://cardocs-ia-....a.run.app"
 npm run deploy:run
 ```
 

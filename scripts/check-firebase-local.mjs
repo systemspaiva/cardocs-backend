@@ -68,12 +68,13 @@ const packageJson = json("package.json");
 const deployScript = read("scripts/deploy-cloud-run.sh");
 report("NODE_BUILD_SCRIPT", packageJson?.scripts?.build === "tsc");
 report("NODE_START_SCRIPT", packageJson?.scripts?.start === "node lib/index.js");
-report("NODE_CLOUD_RUN_DEPLOY_SCRIPT", packageJson?.scripts?.["deploy:run"] === "sh scripts/deploy-cloud-run.sh" && deployScript.includes("GEMINI_PART_RECOMMENDATION_ENABLED=true"));
+report("NODE_CLOUD_RUN_DEPLOY_SCRIPT", packageJson?.scripts?.["deploy:run"] === "sh scripts/deploy-cloud-run.sh" && deployScript.includes("CARDOCS_IA_BASE_URL"));
 report("NODE_FIREBASE_HOSTING_DEPLOY_REMOVED", !packageJson?.scripts?.["deploy:hosting"] && !existsSync(path.resolve(backendDir, "scripts/deploy-firebase-hosting.sh")));
 report("NODE_DEPLOY_REQUIRES_APPROVAL", deployScript.includes("CARDOCS_ALLOW_DEPLOY"));
 report("NODE_DEPLOY_DEVELOP_ONLY", deployScript.includes("CARDOCS_DEPLOY_TARGET"));
 report("NODE_NO_FIREBASE_FUNCTIONS_DEPENDENCY", !packageJson?.dependencies?.["firebase-functions"]);
-report("NODE_GENKIT_FIREBASE_TELEMETRY_DEPENDENCY", Boolean(packageJson?.dependencies?.["@genkit-ai/firebase"]));
+report("NODE_NO_LOCAL_GENKIT_DEPENDENCY", !packageJson?.dependencies?.["@genkit-ai/firebase"] && !packageJson?.dependencies?.["@genkit-ai/google-genai"] && !packageJson?.dependencies?.genkit);
+report("NODE_CARDOCS_IA_AUTH_DEPENDENCY", Boolean(packageJson?.dependencies?.["google-auth-library"]));
 report("NODE_REMOTE_READINESS_SCRIPT", Boolean(packageJson?.scripts?.["check:firebase-readiness"]));
 report("NODE_REMOTE_DEPLOY_READINESS_SCRIPT", Boolean(packageJson?.scripts?.["check:firebase-deploy-readiness"]));
 report("NODE_SENSITIVE_FILE_CHECK_SCRIPT", Boolean(packageJson?.scripts?.["check:no-sensitive-files"]));
@@ -89,7 +90,7 @@ const repository = read("src/infrastructure/firebaseGarageRepository.ts");
 const appStoreVerifier = read("src/infrastructure/appStoreSubscriptionVerifier.ts");
 const plateProvider = read("src/infrastructure/apiplacasVehicleDataProvider.ts");
 const invoiceUseCase = read("src/application/invoiceAnalysis.ts");
-const genkitInvoiceProvider = read("src/infrastructure/genkitInvoiceExtractionProvider.ts");
+const cardocsIaClient = read("src/infrastructure/cardocsIaClient.ts");
 const accountDeletionUseCase = read("src/application/accountDeletion.ts");
 const accountDataStore = read("src/infrastructure/firebaseAccountDataStore.ts");
 const accountAuthStore = read("src/infrastructure/firebaseAccountAuthStore.ts");
@@ -117,25 +118,20 @@ report(
     repository.includes("removeVehiclePhoto") &&
     repository.includes("reorderVehiclePhotos")
 );
-report("API_INVOICE_ANALYSIS_USES_OCR_TEXT", routes.includes("invoiceAnalysis.analyze(body)") && invoiceUseCase.includes("ocrText.length"));
+report("API_INVOICE_ANALYSIS_DELEGATES_TO_CARDOCS_IA", routes.includes("requireCardocsIa(cardocsIa).analyzeInvoice(body)") && cardocsIaClient.includes("/internal/v1/invoices/analyze"));
 report(
-  "API_INVOICE_GENKIT_DOCUMENT_FLOW",
-  invoiceUseCase.includes("documentExtractionProvider.extractFromDocument") &&
-    genkitInvoiceProvider.includes("extractInvoiceFromDocument") &&
-    genkitInvoiceProvider.includes("genkit(") &&
-    genkitInvoiceProvider.includes("googleAI(") &&
-    genkitInvoiceProvider.includes("data:${input.document.mimeType};base64,${input.document.base64Data}") &&
-    !invoiceUseCase.includes("ocrProvider.recognize")
+  "API_INVOICE_CARDOCS_IA_PRIVATE_CLIENT",
+  cardocsIaClient.includes("getIdTokenClient(this.baseURL)") &&
+    cardocsIaClient.includes("CARDOCS_IA_BASE_URL") &&
+    cardocsIaClient.includes("/internal/v1/invoices/analyze") &&
+    cardocsIaClient.includes("/internal/v1/part-replacements/recommendation")
 );
-report("API_INVOICE_GENKIT_EXPLICITLY_ENABLED", genkitInvoiceProvider.includes("GENKIT_INVOICE_EXTRACTION_ENABLED") && genkitInvoiceProvider.includes("GEMINI_INVOICE_EXTRACTION_ENABLED") && genkitInvoiceProvider.includes("GOOGLE_AI_API_KEY") && genkitInvoiceProvider.includes("GEMINI_API_KEY"));
-report("API_INVOICE_GENKIT_FIREBASE_TELEMETRY", genkitInvoiceProvider.includes("enableFirebaseTelemetry") && genkitInvoiceProvider.includes("disableLoggingInputAndOutput: true"));
-report("API_INVOICE_AI_RETURNS_UNKNOWN_WHEN_AMBIGUOUS", domainModels.includes("\"unknown\"") && genkitInvoiceProvider.includes("\"unknown\"") && invoiceUseCase.includes("draft.expenseKind === \"unknown\""));
+report("API_BACKEND_DOES_NOT_LOAD_LOCAL_GEMINI", !read("src/index.ts").includes("GenkitInvoiceExtractionProvider") && !read("src/index.ts").includes("GeminiPartRecommendationProvider"));
+report("API_INVOICE_AI_RETURNS_UNKNOWN_WHEN_AMBIGUOUS", domainModels.includes("\"unknown\"") && invoiceUseCase.includes("draft.expenseKind === \"unknown\""));
 report("API_INVOICE_SAVE_ACCEPTS_AI_DRAFT", routes.includes("invoiceAnalysis.toAutomationResult(body.draft)") && schemas.includes("draft: invoiceDraftSchema"));
 report("API_INVOICE_SAVE_ACCEPTS_MANUAL_ENTRY", domainModels.includes("InvoiceSource = DocumentSource | \"manualEntry\"") && schemas.includes("\"manualEntry\"") && invoiceUseCase.includes("draft.source === \"manualEntry\""));
 report("API_PART_REPLACEMENT_ROUTE", routes.includes("router.post(\"/v1/part-replacements\"") && schemas.includes("createPartReplacementSchema") && domainModels.includes("interface PartReplacementRecord"));
-const geminiPartRecommendationProvider = read("src/infrastructure/geminiPartRecommendationProvider.ts");
-const partRecommendationUseCase = read("src/application/partReplacementRecommendation.ts");
-report("API_PART_REPLACEMENT_RECOMMENDATION_ROUTE", routes.includes("router.post(\"/v1/part-replacements/recommendation\"") && routes.includes("hasPartRecommendationAiAccess") && routes.includes("useProvider: canUseAi") && schemas.includes("partReplacementRecommendationSchema") && partRecommendationUseCase.includes("PartReplacementRecommendationUseCase") && partRecommendationUseCase.includes("useProvider") && geminiPartRecommendationProvider.includes("GeminiPartRecommendationProvider") && geminiPartRecommendationProvider.includes("GEMINI_PART_RECOMMENDATION_ENABLED"));
+report("API_PART_REPLACEMENT_RECOMMENDATION_ROUTE", routes.includes("router.post(\"/v1/part-replacements/recommendation\"") && routes.includes("hasPartRecommendationAiAccess") && routes.includes("useProvider: canUseAi") && schemas.includes("partReplacementRecommendationSchema") && cardocsIaClient.includes("recommendPartReplacement"));
 report("API_SUBSCRIPTION_STATUS_ROUTE", routes.includes("router.get(\"/v1/subscription/status\"") && routes.includes("router.post(\"/v1/subscription/sync\"") && schemas.includes("syncSubscriptionSchema"));
 report("API_SUBSCRIPTION_APP_STORE_JWS_VERIFICATION", appStoreVerifier.includes("SignedDataVerifier") && appStoreVerifier.includes("verifyAndDecodeTransaction") && routes.includes("subscriptionVerifier.verify(body.signedTransactionInfo,") && !routes.includes("expiresAt: body.expiresAt"));
 report("API_SUBSCRIPTION_APP_ACCOUNT_TOKEN_BOUND", routes.includes("appAccountTokenForOwnerId(ownerId)") && appStoreVerifier.includes("transaction.appAccountToken") && appStoreVerifier.includes("expectedAppAccountToken"));
