@@ -3,6 +3,7 @@ import { createHash, randomUUID } from "crypto";
 import { getAuth, type DecodedIdToken, type UserRecord } from "firebase-admin/auth";
 import { DocumentAttachmentStore } from "../../application/documentAttachments.js";
 import { DeleteAccountUseCase } from "../../application/accountDeletion.js";
+import { buildAutomotiveChatContext, sanitizeAutomotiveChatMessages } from "../../application/automotiveChatContext.js";
 import { PushNotificationService } from "../../application/pushNotifications.js";
 import { CardocsIaGateway } from "../../application/cardocsIaGateway.js";
 import { SubscriptionTransactionVerifier } from "../../application/subscriptions.js";
@@ -39,6 +40,7 @@ import {
   vehicleRegistrationSchema,
   manualVehicleRegistrationSchema,
   addVehiclePhotoSchema,
+  automotiveChatRequestSchema,
   removeVehiclePhotoSchema,
   reorderVehiclePhotosSchema,
   updateMileageSchema,
@@ -244,6 +246,17 @@ export function createRouter(
     }));
   }));
 
+  router.post("/v1/ai/chat", asyncHandler(async (request: AuthenticatedRequest, response) => {
+    const body = automotiveChatRequestSchema.parse(request.body);
+    const ownerId = requireOwnerId(request);
+    await ensureAutomotiveChatAccess(userRepository, ownerId);
+    const dashboard = await repository.loadDashboard(ownerId);
+    response.json(await requireCardocsIa(cardocsIa).answerAutomotiveChat({
+      messages: sanitizeAutomotiveChatMessages(body.messages),
+      context: buildAutomotiveChatContext(dashboard)
+    }));
+  }));
+
   router.post("/v1/vehicle-insurance", asyncHandler(async (request: AuthenticatedRequest, response) => {
     const body = createVehicleInsuranceSchema.parse(request.body);
     response.status(201).json(await repository.saveVehicleInsurance(requireOwnerId(request), body));
@@ -429,6 +442,13 @@ async function ensureInvoiceScanAccess(userRepository: FirebaseUserRepository, o
 async function hasPartRecommendationAiAccess(userRepository: FirebaseUserRepository, ownerId: string): Promise<boolean> {
   const access = await userRepository.getUserAccessStatus(ownerId);
   return access.hasAccess;
+}
+
+async function ensureAutomotiveChatAccess(userRepository: FirebaseUserRepository, ownerId: string): Promise<void> {
+  const access = await userRepository.getUserAccessStatus(ownerId);
+  if (!access.hasAccess) {
+    throw new ForbiddenError("Assinatura ativa necessaria para usar a IA automotiva.");
+  }
 }
 
 function toUserProfile(decodedToken: DecodedIdToken, userRecord: UserRecord) {

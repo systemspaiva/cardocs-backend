@@ -1,6 +1,8 @@
 import { GoogleAuth, IdTokenClient } from "google-auth-library";
 import { AppError, ExternalProviderError, ProviderNotConfiguredError } from "../application/errors.js";
 import {
+  AutomotiveChatRequest,
+  AutomotiveChatResponse,
   CardocsIaGateway,
   PartReplacementRecommendation,
   PartReplacementRecommendationRequest
@@ -39,6 +41,10 @@ export class CardocsIaClient implements CardocsIaGateway {
 
   async recommendPartReplacement(input: PartReplacementRecommendationRequest): Promise<PartReplacementRecommendation> {
     return this.post("/internal/v1/part-replacements/recommendation", input);
+  }
+
+  async answerAutomotiveChat(input: AutomotiveChatRequest): Promise<AutomotiveChatResponse> {
+    return this.post("/internal/v1/automotive-chat", input);
   }
 
   private async post<T>(path: string, body: unknown): Promise<T> {

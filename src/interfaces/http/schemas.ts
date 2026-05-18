@@ -381,6 +381,23 @@ export const partReplacementRecommendationSchema = z.object({
   partName: z.string().trim().min(2).max(80)
 });
 
+const automotiveChatMessageSchema = z.object({
+  role: z.enum(["user", "assistant"]),
+  content: z.string().trim().min(1).max(2000)
+}).strict();
+
+export const automotiveChatRequestSchema = z.object({
+  messages: z.array(automotiveChatMessageSchema).min(1).max(12)
+}).strict().superRefine((input, context) => {
+  if (input.messages[input.messages.length - 1]?.role !== "user") {
+    context.addIssue({
+      code: "custom",
+      path: ["messages"],
+      message: "A ultima mensagem deve ser do usuario."
+    });
+  }
+});
+
 export const createVehicleInsuranceSchema = z.object({
   vehicleID: vehicleIDSchema,
   insurerName: z.string().trim().min(2).max(120),

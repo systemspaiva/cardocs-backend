@@ -225,6 +225,7 @@ export interface VehicleGarage {
   investment: InvestmentSummary;
   timeline: MaintenanceRecord[];
   healthItems: PartHealth[];
+  partReplacements: PartReplacementRecord[];
   vaultDocuments: VaultDocument[];
   insurance?: VehicleInsurance | null;
   resaleDossier: ResaleDossier;

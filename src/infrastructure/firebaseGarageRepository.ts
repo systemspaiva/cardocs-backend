@@ -729,6 +729,7 @@ export class FirebaseGarageRepository {
       investment: toInvestmentSummary(data.investment),
       timeline,
       healthItems: calculatePartHealth(vehicle, partReplacements),
+      partReplacements,
       vaultDocuments,
       insurance,
       resaleDossier: generateResaleDossier(vehicle, { timeline, vaultDocuments, insurance })
