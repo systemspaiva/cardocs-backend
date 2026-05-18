@@ -12,6 +12,7 @@ const optionalEditableTextSchema = z.string().trim().min(1).max(160).optional();
 const optionalNullableLongTextSchema = z.string().trim().max(2000).nullable().optional();
 const documentSourceSchema = z.enum(["cameraScan", "fileImport", "photoLibrary"]);
 const invoiceSourceSchema = z.enum(["cameraScan", "fileImport", "photoLibrary", "manualEntry"]);
+const invoiceExpenseKindSchema = z.enum(["vehicleService", "partOrProduct"]);
 const pushDeviceTokenSchema = z.string().trim().min(16).max(4096);
 const legalDocumentVersionSchema = z.string().trim().min(1).max(80);
 const maintenanceDateSchema = z
@@ -297,6 +298,7 @@ export const invoiceDraftSchema = z.object({
   supplierName: z.string().min(1),
   serviceTitle: z.string().min(1),
   category: z.string().min(1),
+  expenseKind: invoiceExpenseKindSchema,
   date: z.string().min(1),
   time: z.string().nullable().optional(),
   amount: positiveMoneyNumberSchema,

@@ -2,6 +2,7 @@ import {
   AutomationResult,
   InvoiceDocumentContent,
   InvoiceDocumentInput,
+  InvoiceExpenseKind,
   InvoiceScanDraft
 } from "../domain/models.js";
 import {
@@ -38,6 +39,7 @@ export interface InvoiceExtraction {
   time: string | null;
   amount: number | null;
   mileage: number | null;
+  expenseKind?: InvoiceExpenseKind | null;
   confidence: number;
   lineItems: DraftInvoiceLineItem[];
 }
@@ -96,10 +98,19 @@ export class InvoiceAnalysisUseCase {
   }
 
   toAutomationResult(draft: InvoiceScanDraft): AutomationResult {
+    if (draft.expenseKind === "unknown") {
+      throw new ValidationError("Selecione se a nota e de servico ou de peca/produto antes de salvar.");
+    }
+
     const isDocumentOrTax = /document|imposto|ipva|licenciamento|taxa/i.test(draft.category);
     const maintenance = isDocumentOrTax ? 0 : draft.amount;
     const documentsAndTaxes = isDocumentOrTax ? draft.amount : 0;
     const purchaseSummary = summarizePurchasedItems(draft.lineItems, draft.serviceTitle);
+    const documentType = isDocumentOrTax
+      ? "Documento ou imposto"
+      : draft.expenseKind === "vehicleService"
+        ? "Nota de serviço"
+        : "Nota de peça ou produto";
     const documentID = deterministicUuid("vault-document", draft.id);
     const isManualEntry = draft.source === "manualEntry";
     const isAIValidated = !isManualEntry && draft.confidence >= 70;
@@ -125,6 +136,7 @@ export class InvoiceAnalysisUseCase {
         supplierName: draft.supplierName,
         serviceTitle: draft.serviceTitle,
         purchaseSummary,
+        expenseKind: draft.expenseKind,
         documentID
       },
       document: {
@@ -134,10 +146,11 @@ export class InvoiceAnalysisUseCase {
         amount: draft.amount,
         status: isManualEntry ? "Lancamento manual" : isAIValidated ? "Validado por IA" : "Validado pela leitura",
         kind: "expenseReceipt",
-        documentType: isDocumentOrTax ? "Documento ou imposto" : "Nota fiscal",
+        documentType,
         supplierName: draft.supplierName,
         serviceTitle: draft.serviceTitle,
         purchaseSummary,
+        expenseKind: draft.expenseKind,
         source: draft.source,
         lineItems: draft.lineItems
       }
@@ -195,6 +208,10 @@ function buildDraft(
   }
 
   const category = sanitizeLabel(extraction.category) ?? inferCategory(`${serviceTitle}\n${evidenceText}`);
+  const expenseKind = normalizeExpenseKind(extraction.expenseKind);
+  if (!expenseKind) {
+    throw new ValidationError("Nao foi possivel classificar se a nota e de servico ou de peca/produto.");
+  }
   const confidence = Math.max(0, Math.min(100, Math.trunc(extraction.confidence || 58)));
   const mileage = Math.max(0, Math.trunc(extraction.mileage ?? 0));
   const time = normalizeTime(extraction.time);
@@ -205,6 +222,7 @@ function buildDraft(
     supplierName,
     serviceTitle,
     category,
+    expenseKind,
     date,
     time,
     amount,
@@ -213,6 +231,7 @@ function buildDraft(
     lineItems,
     extractedFields: [
       extractedField(draftId, "Fornecedor", supplierName, confidence),
+      extractedField(draftId, "Tipo da nota", titleForExpenseKind(expenseKind), confidence),
       extractedField(draftId, "Data", date, confidence),
       ...(time ? [extractedField(draftId, "Hora", time, confidence)] : []),
       extractedField(draftId, "Valor total", formatBRL(amount), confidence),
@@ -269,6 +288,7 @@ function mergeExtractions(
     time: groundedTime ?? fallback.time,
     amount: selectGroundedAmount(fallback.amount, groundedAmount),
     mileage: positiveNumber(preferred.mileage) ?? fallback.mileage,
+    expenseKind: normalizeExpenseKind(preferred.expenseKind) ?? fallback.expenseKind,
     confidence: Math.max(fallback.confidence, Math.trunc(preferred.confidence ?? 0)),
     lineItems: fallback.lineItems
   };
@@ -304,6 +324,7 @@ function extractDeterministically(text: string): InvoiceExtraction {
     time,
     amount,
     mileage,
+    expenseKind: "unknown",
     confidence: amount && date ? 62 : 38,
     lineItems
   };
@@ -390,6 +411,32 @@ function inferCategory(text: string): string {
   if (/(freio|pastilha|disco)/.test(normalized)) return "Freios";
   if (/(bateria|alternador|eletric)/.test(normalized)) return "Bateria";
   return "Manutencao";
+}
+
+function normalizeExpenseKind(value: InvoiceExpenseKind | string | null | undefined): InvoiceExpenseKind | null {
+  if (!value) return null;
+  const normalized = stripAccents(value).toLowerCase().replace(/[\s_-]/g, "");
+  if (normalized === "vehicleservice" || normalized === "servico" || normalized === "serviconocarro") {
+    return "vehicleService";
+  }
+  if (normalized === "partorproduct" || normalized === "produto" || normalized === "peca" || normalized === "pecaouproduto") {
+    return "partOrProduct";
+  }
+  if (normalized === "unknown" || normalized === "naoidentificado" || normalized === "indefinido") {
+    return "unknown";
+  }
+  return null;
+}
+
+function titleForExpenseKind(value: InvoiceExpenseKind): string {
+  switch (value) {
+  case "vehicleService":
+    return "Serviço no carro";
+  case "partOrProduct":
+    return "Peça ou produto";
+  case "unknown":
+    return "Não identificado pela IA";
+  }
 }
 
 function healthImpactsForCategory(draftId: string, category: string, title: string) {

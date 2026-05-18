@@ -73,6 +73,7 @@ report("NODE_FIREBASE_HOSTING_DEPLOY_REMOVED", !packageJson?.scripts?.["deploy:h
 report("NODE_DEPLOY_REQUIRES_APPROVAL", deployScript.includes("CARDOCS_ALLOW_DEPLOY"));
 report("NODE_DEPLOY_DEVELOP_ONLY", deployScript.includes("CARDOCS_DEPLOY_TARGET"));
 report("NODE_NO_FIREBASE_FUNCTIONS_DEPENDENCY", !packageJson?.dependencies?.["firebase-functions"]);
+report("NODE_GENKIT_FIREBASE_TELEMETRY_DEPENDENCY", Boolean(packageJson?.dependencies?.["@genkit-ai/firebase"]));
 report("NODE_REMOTE_READINESS_SCRIPT", Boolean(packageJson?.scripts?.["check:firebase-readiness"]));
 report("NODE_REMOTE_DEPLOY_READINESS_SCRIPT", Boolean(packageJson?.scripts?.["check:firebase-deploy-readiness"]));
 report("NODE_SENSITIVE_FILE_CHECK_SCRIPT", Boolean(packageJson?.scripts?.["check:no-sensitive-files"]));
@@ -87,7 +88,7 @@ const domainModels = read("src/domain/models.ts");
 const appStoreVerifier = read("src/infrastructure/appStoreSubscriptionVerifier.ts");
 const plateProvider = read("src/infrastructure/apiplacasVehicleDataProvider.ts");
 const invoiceUseCase = read("src/application/invoiceAnalysis.ts");
-const geminiProvider = read("src/infrastructure/geminiInvoiceExtractionProvider.ts");
+const genkitInvoiceProvider = read("src/infrastructure/genkitInvoiceExtractionProvider.ts");
 const accountDeletionUseCase = read("src/application/accountDeletion.ts");
 const accountDataStore = read("src/infrastructure/firebaseAccountDataStore.ts");
 const accountAuthStore = read("src/infrastructure/firebaseAccountAuthStore.ts");
@@ -104,14 +105,18 @@ report("API_PLATE_LOOKUP_USES_APIPLACAS_PROVIDER", routes.includes("plateLookup.
 report("API_VEHICLE_REGISTRATION_REVALIDATES_PLATE", routes.includes("await plateLookup.lookup(body.plate)") && routes.includes("plateVerified: true"));
 report("API_INVOICE_ANALYSIS_USES_OCR_TEXT", routes.includes("invoiceAnalysis.analyze(body)") && invoiceUseCase.includes("ocrText.length"));
 report(
-  "API_INVOICE_GEMINI_DOCUMENT_DIRECT",
+  "API_INVOICE_GENKIT_DOCUMENT_FLOW",
   invoiceUseCase.includes("documentExtractionProvider.extractFromDocument") &&
-    geminiProvider.includes("extractFromDocument") &&
-    geminiProvider.includes("inline_data") &&
+    genkitInvoiceProvider.includes("extractInvoiceFromDocument") &&
+    genkitInvoiceProvider.includes("genkit(") &&
+    genkitInvoiceProvider.includes("googleAI(") &&
+    genkitInvoiceProvider.includes("data:${input.document.mimeType};base64,${input.document.base64Data}") &&
     !invoiceUseCase.includes("ocrProvider.recognize")
 );
-report("API_INVOICE_GEMINI_EXPLICITLY_ENABLED", geminiProvider.includes("GEMINI_INVOICE_EXTRACTION_ENABLED") && geminiProvider.includes("GOOGLE_AI_API_KEY") && geminiProvider.includes("GEMINI_API_KEY") && geminiProvider.includes("generativelanguage.googleapis.com"));
-report("API_INVOICE_SAVE_ACCEPTS_FIREBASE_AI_DRAFT", routes.includes("invoiceAnalysis.toAutomationResult(body.draft)") && schemas.includes("draft: invoiceDraftSchema"));
+report("API_INVOICE_GENKIT_EXPLICITLY_ENABLED", genkitInvoiceProvider.includes("GENKIT_INVOICE_EXTRACTION_ENABLED") && genkitInvoiceProvider.includes("GEMINI_INVOICE_EXTRACTION_ENABLED") && genkitInvoiceProvider.includes("GOOGLE_AI_API_KEY") && genkitInvoiceProvider.includes("GEMINI_API_KEY"));
+report("API_INVOICE_GENKIT_FIREBASE_TELEMETRY", genkitInvoiceProvider.includes("enableFirebaseTelemetry") && genkitInvoiceProvider.includes("disableLoggingInputAndOutput: true"));
+report("API_INVOICE_AI_RETURNS_UNKNOWN_WHEN_AMBIGUOUS", domainModels.includes("\"unknown\"") && genkitInvoiceProvider.includes("\"unknown\"") && invoiceUseCase.includes("draft.expenseKind === \"unknown\""));
+report("API_INVOICE_SAVE_ACCEPTS_AI_DRAFT", routes.includes("invoiceAnalysis.toAutomationResult(body.draft)") && schemas.includes("draft: invoiceDraftSchema"));
 report("API_INVOICE_SAVE_ACCEPTS_MANUAL_ENTRY", domainModels.includes("InvoiceSource = DocumentSource | \"manualEntry\"") && schemas.includes("\"manualEntry\"") && invoiceUseCase.includes("draft.source === \"manualEntry\""));
 report("API_PART_REPLACEMENT_ROUTE", routes.includes("router.post(\"/v1/part-replacements\"") && schemas.includes("createPartReplacementSchema") && domainModels.includes("interface PartReplacementRecord"));
 const geminiPartRecommendationProvider = read("src/infrastructure/geminiPartRecommendationProvider.ts");
@@ -149,8 +154,7 @@ report("FIRESTORE_PART_REPLACEMENTS_IN_DASHBOARD", repository.includes("collecti
 
 const iosInfo = read("cardocs/Info.plist", iosDir);
 report("IOS_API_BASE_URL_CLOUD_RUN", iosInfo.includes("https://cardocs-backend-5qq5b33fha-rj.a.run.app") && !/https:\/\/cardocs-app(?:--[a-z0-9-]+)?\.web\.app/.test(iosInfo));
-report("IOS_GEMINI_MODEL_CONFIGURED", iosInfo.includes("CARDOCS_GEMINI_MODEL"));
-report("IOS_FIREBASE_AI_KILL_SWITCH_CONFIGURED", iosInfo.includes("CARDOCS_FIREBASE_AI_ENABLED"));
+report("IOS_FIREBASE_AI_CONFIG_REMOVED", !iosInfo.includes("CARDOCS_GEMINI_MODEL") && !iosInfo.includes("CARDOCS_FIREBASE_AI_ENABLED"));
 report("IOS_GOOGLE_CALLBACK_BASE_SCHEME", iosInfo.includes("<string>cardocs</string>"));
 report("IOS_INVOICE_CAPTURE_PERMISSIONS", iosInfo.includes("NSCameraUsageDescription") && iosInfo.includes("NSPhotoLibraryUsageDescription"));
 
@@ -183,11 +187,13 @@ const iosInvoiceFlow = read("cardocs/Presentation/ViewModels/CarDocsViewModel.sw
 const iosPushRegistration = read("cardocs/Data/PushNotificationRegistrationService.swift", iosDir);
 const iosComponents = read("cardocs/Presentation/Components/CarDocsComponents.swift", iosDir);
 report(
-  "IOS_INVOICE_ANALYSIS_USES_FIREBASE_AI_DOCUMENT_UPLOAD",
+  "IOS_INVOICE_ANALYSIS_USES_BACKEND_GENKIT",
   iosInvoiceFlow.includes("DefaultInvoiceDocumentPreparer") &&
     iosInvoiceFlow.includes("document: preparedDocument.content") &&
-    iosInvoiceFlow.includes("invoiceDraftAnalyzer.analyze(input)") &&
-    !iosInvoiceFlow.includes("repository.analyzeInvoice(input)") &&
+    iosInvoiceFlow.includes("repository.analyzeInvoice(input)") &&
+    !iosInvoiceFlow.includes("invoiceDraftAnalyzer.analyze(input)") &&
+    !existsSync(path.resolve(iosDir, "cardocs/Data/FirebaseAIInvoiceDraftAnalyzer.swift")) &&
+    !read("Podfile", iosDir).includes("FirebaseAI") &&
     remoteVehicle.includes("draft: draft")
 );
 report("IOS_INVOICE_MANUAL_ENTRY_FLOW", appView.includes("onManualDraft: viewModel.createManualInvoiceDraft") && iosInvoiceFlow.includes("func createManualInvoiceDraft") && flowSheets.includes("Digitar manualmente") && flowSheets.includes("LerNotaManualEntryView"));

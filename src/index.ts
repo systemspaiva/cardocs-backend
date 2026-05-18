@@ -12,7 +12,7 @@ import { FirebaseGarageRepository } from "./infrastructure/firebaseGarageReposit
 import { FirebasePushDeviceTokenStore } from "./infrastructure/firebasePushDeviceTokenStore.js";
 import { FirebaseStorageDocumentAttachmentStore } from "./infrastructure/firebaseStorageDocumentAttachmentStore.js";
 import { FirebaseUserRepository } from "./infrastructure/firebaseUserRepository.js";
-import { GeminiInvoiceExtractionProvider } from "./infrastructure/geminiInvoiceExtractionProvider.js";
+import { GenkitInvoiceExtractionProvider } from "./infrastructure/genkitInvoiceExtractionProvider.js";
 import { GeminiPartRecommendationProvider } from "./infrastructure/geminiPartRecommendationProvider.js";
 import { AppStoreSubscriptionVerifier } from "./infrastructure/appStoreSubscriptionVerifier.js";
 import { DeleteAccountUseCase } from "./application/accountDeletion.js";
@@ -30,7 +30,7 @@ app.use(express.json({ limit: "32mb" }));
 const firestore = getFirestore();
 const vehiclePlateProvider = ApiPlacasVehicleDataProvider.fromEnvironment();
 const vehicleImageProvider = CarsXeVehicleImageProvider.fromEnvironment();
-const invoiceExtractionProvider = GeminiInvoiceExtractionProvider.fromEnvironment();
+const invoiceExtractionProvider = GenkitInvoiceExtractionProvider.fromEnvironment();
 const partRecommendationProvider = GeminiPartRecommendationProvider.fromEnvironment();
 const documentAttachmentStore = FirebaseStorageDocumentAttachmentStore.fromDefaultBucket();
 const subscriptionVerifier = AppStoreSubscriptionVerifier.fromEnvironment();
@@ -57,9 +57,22 @@ app.use(createRouter(
 app.use(errorHandler);
 
 const port = Number(process.env.PORT ?? "8080");
-app.listen(port, "0.0.0.0", () => {
-  console.log(`cardocs-backend listening on ${port}`);
-});
+void startServer();
+
+async function startServer(): Promise<void> {
+  if (isEnabled(process.env.CARDOCS_GENKIT_TELEMETRY_SMOKE_ON_STARTUP) && invoiceExtractionProvider instanceof GenkitInvoiceExtractionProvider) {
+    await invoiceExtractionProvider.runTelemetrySmoke();
+    console.log("cardocs_genkit_telemetry_smoke=ok");
+  }
+
+  app.listen(port, "0.0.0.0", () => {
+    console.log(`cardocs-backend listening on ${port}`);
+  });
+}
+
+function isEnabled(value: string | undefined): boolean {
+  return value === "true" || value === "1";
+}
 
 function cors(request: Request, response: Response, next: NextFunction): void {
   response.setHeader("Access-Control-Allow-Origin", "*");

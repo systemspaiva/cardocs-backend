@@ -2,6 +2,7 @@ export type VehicleKind = "car" | "motorcycle";
 export type PartHealthTone = "healthy" | "warning" | "neutral";
 export type DocumentSource = "cameraScan" | "fileImport" | "photoLibrary";
 export type InvoiceSource = DocumentSource | "manualEntry";
+export type InvoiceExpenseKind = "vehicleService" | "partOrProduct" | "unknown";
 export type VaultDocumentKind = "expenseReceipt" | "vehicleDocument";
 export type VehicleTransferStatus = "pending" | "accepted" | "declined";
 export type InsurancePremiumPeriod = "monthly" | "annual";
@@ -129,6 +130,7 @@ export interface MaintenanceRecord {
   supplierName?: string | null;
   serviceTitle?: string | null;
   purchaseSummary?: string | null;
+  expenseKind?: InvoiceExpenseKind | null;
   documentID?: string | null;
   attachment?: DocumentAttachment | null;
 }
@@ -174,6 +176,7 @@ export interface VaultDocument {
   supplierName?: string | null;
   serviceTitle?: string | null;
   purchaseSummary?: string | null;
+  expenseKind?: InvoiceExpenseKind | null;
   source?: InvoiceSource | null;
   lineItems?: InvoiceLineItem[];
   attachment?: DocumentAttachment | null;
@@ -304,6 +307,7 @@ export interface InvoiceScanDraft {
   supplierName: string;
   serviceTitle: string;
   category: string;
+  expenseKind: InvoiceExpenseKind;
   date: string;
   time?: string | null;
   amount: number;

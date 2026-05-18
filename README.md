@@ -63,11 +63,11 @@ Authorization: Bearer <Firebase ID token>
 
 `vehicles/image` consulta a CarsXE pelo backend quando `CARSXE_API_KEY` está configurada e retorna a melhor imagem real disponível para marca, modelo e ano. Quando a CarsXE não encontra imagens, a rota retorna `404` sem persistir dados fictícios no Firestore.
 
-O app iOS envia imagem/PDF diretamente para o SDK Firebase AI Logic com backend `.googleAI()` para gerar a revisão estruturada com Gemini Developer API, sem embutir Gemini API key no bundle. A chamada usa limited-use App Check tokens e não depende de OCR local.
+O app iOS prepara imagem/PDF e envia o documento para `/v1/invoices/analyze`. O backend roda um flow Genkit com Google AI/Gemini para gerar a revisão estruturada, sem embutir Gemini API key no bundle e mantendo prompt/schema/classificação em um único lugar.
 
 `invoices/analyze` continua disponível como rota de compatibilidade para análise backend de texto/documento, mas o fluxo principal do app iOS não depende mais dela.
 
-`POST /v1/invoices` recebe `vehicleID` e o `draft` estruturado pela Firebase AI Logic no app. O backend valida o schema do draft, gera o `AutomationResult` no servidor e só então persiste o histórico/cofre no Firestore.
+`POST /v1/invoices` recebe `vehicleID` e o `draft` estruturado pela análise do backend. O backend valida o schema do draft, gera o `AutomationResult` no servidor e só então persiste o histórico/cofre no Firestore.
 
 ## Firestore
 
@@ -115,16 +115,16 @@ export CARSXE_BASE_URL="https://api.carsxe.com"
 
 Não versione nem imprima a chave da CarsXE. Em deploy, configure esse valor como secret/variável protegida do ambiente.
 
-Extração de notas com Google AI/Gemini:
+Extração de notas com Genkit + Google AI/Gemini no backend:
 
 ```bash
-export GEMINI_INVOICE_EXTRACTION_ENABLED="true"
+export GENKIT_INVOICE_EXTRACTION_ENABLED="true"
 export GOOGLE_AI_API_KEY="<chave configurada fora do repositorio>"
-export GEMINI_INVOICE_MODEL="gemini-3-flash-preview"
-export GEMINI_INVOICE_TIMEOUT_MS="30000"
+export GENKIT_INVOICE_MODEL="gemini-3-flash-preview"
+export GENKIT_INVOICE_TIMEOUT_MS="30000"
 ```
 
-`GEMINI_API_KEY` também é aceito como fallback. Não versione nem imprima a chave do Gemini. O app faz OCR local no iOS e envia apenas o texto reconhecido para baratear a chamada de IA; o backend aplica redaction básica de CPF/CNPJ/chave de acesso/contatos antes da chamada externa.
+`GEMINI_INVOICE_*` e `GEMINI_API_KEY` continuam aceitos como fallback para deploys existentes. Não versione nem imprima a chave do Gemini. O app envia a nota preparada para `/v1/invoices/analyze`; o backend concentra prompt, schema e classificação de `vehicleService`, `partOrProduct` ou `unknown` no fluxo Genkit. O backend habilita Firebase Genkit Monitoring para traces/métricas, mas com logging de entrada/saída desativado para não persistir conteúdo sensível de notas. Quando a entrada vier apenas como OCR, o backend aplica redaction básica de CPF/CNPJ/chave de acesso/contatos antes da chamada externa.
 
 Os scripts de deploy bloqueiam execução fora do alvo `develop` e fora da branch `develop`. Enquanto o repositório local estiver em `main`, eles não publicam.
 
