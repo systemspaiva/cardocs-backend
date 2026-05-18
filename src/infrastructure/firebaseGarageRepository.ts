@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import { FieldValue, Firestore, Timestamp } from "firebase-admin/firestore";
 import {
   AutomationResult,
@@ -11,6 +12,7 @@ import {
   VehicleFipeQuote,
   VehicleDashboard,
   VehicleGarage,
+  VehicleImage,
   VehicleInsurance,
   VehiclePlateDetails,
   VehicleProfile,
@@ -33,6 +35,8 @@ import {
   zeroUuid
 } from "../domain/factories.js";
 import { NotFoundError, ValidationError } from "../application/errors.js";
+
+const maxVehiclePhotos = 12;
 
 export class FirebaseGarageRepository {
   constructor(private readonly db: Firestore) {}
@@ -102,38 +106,120 @@ export class FirebaseGarageRepository {
     vehicleId: string,
     photo: { mimeType: string; base64Data: string }
   ): Promise<VehicleProfile> {
-    const { getStorage } = await import("firebase-admin/storage");
     const vehicleRef = await this.resolveVehicleRef(ownerId, vehicleId);
-    const snapshot = await vehicleRef.get();
-    if (!snapshot.exists) throw new NotFoundError("Veiculo nao encontrado.");
-
-    const buffer = Buffer.from(photo.base64Data, "base64");
-    const ext = photo.mimeType.split("/")[1]?.replace("jpeg", "jpg") ?? "jpg";
-    const storagePath = `users/${ownerId}/vehicles/${vehicleId}/photo.${ext}`;
-
-    const bucket = getStorage().bucket();
-    const file = bucket.file(storagePath);
-    await file.save(buffer, { contentType: photo.mimeType, resumable: false });
-    await file.makePublic();
-    const publicUrl = `https://storage.googleapis.com/${bucket.name}/${storagePath}`;
-
-    const vehicleImage = {
-      url: publicUrl,
-      thumbnailUrl: null,
-      mime: photo.mimeType,
-      width: null,
-      height: null,
-      accentColor: null,
-      source: "userPhoto"
-    };
+    await this.assertVehicleExists(vehicleRef);
+    const vehicleImage = await uploadVehiclePhoto(ownerId, vehicleRef.id, photo, `photo.${imageExtension(photo.mimeType)}`);
 
     let updatedVehicle: VehicleProfile | null = null;
     await this.db.runTransaction(async (transaction) => {
       const snap = await transaction.get(vehicleRef);
       if (!snap.exists) throw new NotFoundError("Veiculo nao encontrado.");
-      const current = snap.data()?.vehicle ?? {};
-      const next = { ...current, image: vehicleImage };
+      const current = toVehicleProfile(snap.data()?.vehicle, vehicleRef.id, { idOverride: vehicleRef.id });
+      const [, ...remainingPhotos] = current.photos;
+      const next: VehicleProfile = {
+        ...current,
+        image: vehicleImage,
+        photos: [vehicleImage, ...remainingPhotos]
+      };
       updatedVehicle = next as VehicleProfile;
+      transaction.set(vehicleRef, { vehicle: next, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    });
+
+    if (!updatedVehicle) throw new NotFoundError("Veiculo nao encontrado.");
+    return updatedVehicle;
+  }
+
+  async addVehiclePhoto(
+    ownerId: string,
+    vehicleId: string,
+    photo: { mimeType: string; base64Data: string; makePrimary: boolean }
+  ): Promise<VehicleProfile> {
+    const vehicleRef = await this.resolveVehicleRef(ownerId, vehicleId);
+    const snapshot = await this.assertVehicleExists(vehicleRef);
+    const current = toVehicleProfile(snapshot.data()?.vehicle, vehicleRef.id, { idOverride: vehicleRef.id });
+    if (current.photos.length >= maxVehiclePhotos) {
+      throw new ValidationError("Limite de fotos do veiculo atingido.");
+    }
+    const vehicleImage = await uploadVehiclePhoto(
+      ownerId,
+      vehicleRef.id,
+      photo,
+      `photos/${randomUUID()}.${imageExtension(photo.mimeType)}`
+    );
+
+    let updatedVehicle: VehicleProfile | null = null;
+    await this.db.runTransaction(async (transaction) => {
+      const snap = await transaction.get(vehicleRef);
+      if (!snap.exists) throw new NotFoundError("Veiculo nao encontrado.");
+      const current = toVehicleProfile(snap.data()?.vehicle, vehicleRef.id, { idOverride: vehicleRef.id });
+      if (current.photos.length >= maxVehiclePhotos) {
+        throw new ValidationError("Limite de fotos do veiculo atingido.");
+      }
+      const photos = photo.makePrimary || current.photos.length === 0
+        ? [vehicleImage, ...current.photos]
+        : [...current.photos, vehicleImage];
+      const next: VehicleProfile = {
+        ...current,
+        image: photos[0] ?? null,
+        photos
+      };
+      updatedVehicle = next;
+      transaction.set(vehicleRef, { vehicle: next, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    });
+
+    if (!updatedVehicle) throw new NotFoundError("Veiculo nao encontrado.");
+    return updatedVehicle;
+  }
+
+  async removeVehiclePhoto(ownerId: string, vehicleId: string, photoURL: string): Promise<VehicleProfile> {
+    const vehicleRef = await this.resolveVehicleRef(ownerId, vehicleId);
+    let updatedVehicle: VehicleProfile | null = null;
+
+    await this.db.runTransaction(async (transaction) => {
+      const snap = await transaction.get(vehicleRef);
+      if (!snap.exists) throw new NotFoundError("Veiculo nao encontrado.");
+      const current = toVehicleProfile(snap.data()?.vehicle, vehicleRef.id, { idOverride: vehicleRef.id });
+      const photos = current.photos.filter((photo) => photo.url !== photoURL);
+      if (photos.length === current.photos.length) {
+        throw new NotFoundError("Foto nao encontrada.");
+      }
+      const next: VehicleProfile = {
+        ...current,
+        image: photos[0] ?? null,
+        photos
+      };
+      updatedVehicle = next;
+      transaction.set(vehicleRef, { vehicle: next, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    });
+
+    if (!updatedVehicle) throw new NotFoundError("Veiculo nao encontrado.");
+    return updatedVehicle;
+  }
+
+  async reorderVehiclePhotos(ownerId: string, vehicleId: string, photoURLs: string[]): Promise<VehicleProfile> {
+    const vehicleRef = await this.resolveVehicleRef(ownerId, vehicleId);
+    let updatedVehicle: VehicleProfile | null = null;
+
+    await this.db.runTransaction(async (transaction) => {
+      const snap = await transaction.get(vehicleRef);
+      if (!snap.exists) throw new NotFoundError("Veiculo nao encontrado.");
+      const current = toVehicleProfile(snap.data()?.vehicle, vehicleRef.id, { idOverride: vehicleRef.id });
+      const photosByURL = new Map(current.photos.map((photo) => [photo.url, photo]));
+      const uniqueURLs = new Set(photoURLs);
+      if (uniqueURLs.size !== photoURLs.length || uniqueURLs.size !== photosByURL.size) {
+        throw new ValidationError("A nova ordem precisa conter exatamente as fotos atuais.");
+      }
+      const photos = photoURLs.map((url) => photosByURL.get(url));
+      if (photos.some((photo) => !photo)) {
+        throw new ValidationError("A nova ordem precisa conter exatamente as fotos atuais.");
+      }
+      const orderedPhotos = photos as VehicleImage[];
+      const next: VehicleProfile = {
+        ...current,
+        image: orderedPhotos[0] ?? null,
+        photos: orderedPhotos
+      };
+      updatedVehicle = next;
       transaction.set(vehicleRef, { vehicle: next, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
     });
 
@@ -709,6 +795,16 @@ export class FirebaseGarageRepository {
   private vehicleRef(ownerId: string, vehicleId: string) {
     return this.db.collection("users").doc(ownerId).collection("vehicles").doc(vehicleId);
   }
+
+  private async assertVehicleExists(
+    vehicleRef: FirebaseFirestore.DocumentReference
+  ): Promise<FirebaseFirestore.DocumentSnapshot> {
+    const snapshot = await vehicleRef.get();
+    if (!snapshot.exists) {
+      throw new NotFoundError("Veiculo nao encontrado.");
+    }
+    return snapshot;
+  }
 }
 
 function withTimestamps<T extends object>(
@@ -734,6 +830,8 @@ function copyVehicleSubcollection(
 
 function toVehicleProfile(value: unknown, fallbackId: string, options: { idOverride?: string } = {}): VehicleProfile {
   const data = value as Partial<VehicleProfile> | undefined;
+  const image = toVehicleImage(data?.image);
+  const photos = toVehiclePhotos(data, image);
   return {
     id: options.idOverride ?? stringValue(data?.id, fallbackId),
     kind: data?.kind === "motorcycle" ? "motorcycle" : "car",
@@ -747,9 +845,67 @@ function toVehicleProfile(value: unknown, fallbackId: string, options: { idOverr
     nextServiceTitle: stringValue(data?.nextServiceTitle, "Primeira organizacao"),
     nextServiceDistance: stringValue(data?.nextServiceDistance, "Pronto para importar historico"),
     statusTags: Array.isArray(data?.statusTags) ? data.statusTags.map(String) : ["Placa Verificada"],
-    image: data?.image ?? null,
+    image: photos[0] ?? image,
+    photos,
     fipe: toVehicleFipeQuote(data?.fipe),
     details: toVehiclePlateDetails(data?.details)
+  };
+}
+
+async function uploadVehiclePhoto(
+  ownerId: string,
+  vehicleId: string,
+  photo: { mimeType: string; base64Data: string },
+  fileName: string
+): Promise<VehicleImage> {
+  const { getStorage } = await import("firebase-admin/storage");
+  const buffer = Buffer.from(photo.base64Data, "base64");
+  const storagePath = `users/${ownerId}/vehicles/${vehicleId}/${fileName}`;
+
+  const bucket = getStorage().bucket();
+  const file = bucket.file(storagePath);
+  await file.save(buffer, { contentType: photo.mimeType, resumable: false });
+  await file.makePublic();
+
+  return {
+    url: `https://storage.googleapis.com/${bucket.name}/${storagePath}`,
+    thumbnailUrl: null,
+    mime: photo.mimeType,
+    width: null,
+    height: null,
+    accentColor: null,
+    source: "userPhoto"
+  };
+}
+
+function imageExtension(mimeType: string): string {
+  return mimeType.split("/")[1]?.replace("jpeg", "jpg") ?? "jpg";
+}
+
+function toVehiclePhotos(data: Partial<VehicleProfile> | undefined, fallbackImage: VehicleImage | null): VehicleImage[] {
+  const photos = Array.isArray(data?.photos)
+    ? data.photos.map(toVehicleImage).filter((photo): photo is VehicleImage => photo !== null)
+    : [];
+  if (photos.length > 0) {
+    return photos;
+  }
+  return fallbackImage ? [fallbackImage] : [];
+}
+
+function toVehicleImage(value: unknown): VehicleImage | null {
+  const data = value as Partial<VehicleImage> | undefined;
+  const url = stringValue(data?.url);
+  if (!url) {
+    return null;
+  }
+  return {
+    url,
+    thumbnailUrl: nullableStringValue(data?.thumbnailUrl),
+    mime: nullableStringValue(data?.mime),
+    width: nullableNumberValue(data?.width),
+    height: nullableNumberValue(data?.height),
+    accentColor: nullableStringValue(data?.accentColor),
+    source: stringValue(data?.source, "userPhoto")
   };
 }
 

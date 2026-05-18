@@ -85,6 +85,7 @@ report("NODE_NO_FUNCTIONS_ONREQUEST", !server.includes("onRequest") && !server.i
 const routes = read("src/interfaces/http/routes.ts");
 const schemas = read("src/interfaces/http/schemas.ts");
 const domainModels = read("src/domain/models.ts");
+const repository = read("src/infrastructure/firebaseGarageRepository.ts");
 const appStoreVerifier = read("src/infrastructure/appStoreSubscriptionVerifier.ts");
 const plateProvider = read("src/infrastructure/apiplacasVehicleDataProvider.ts");
 const invoiceUseCase = read("src/application/invoiceAnalysis.ts");
@@ -103,6 +104,19 @@ report("API_ACCOUNT_DELETE_REMOVES_STORAGE", accountDataStore.includes("deleteFi
 report("API_ACCOUNT_DELETE_REMOVES_AUTH_USER", accountAuthStore.includes("deleteUser(ownerId)") && accountAuthStore.includes("auth/user-not-found"));
 report("API_PLATE_LOOKUP_USES_APIPLACAS_PROVIDER", routes.includes("plateLookup.lookup(body.plate)") && plateProvider.includes("APIPLACAS_TOKEN") && plateProvider.includes("https://wdapi2.com.br"));
 report("API_VEHICLE_REGISTRATION_REVALIDATES_PLATE", routes.includes("await plateLookup.lookup(body.plate)") && routes.includes("plateVerified: true"));
+report(
+  "API_VEHICLE_PHOTO_GALLERY_ENDPOINTS",
+  routes.includes("router.post(\"/v1/vehicles/photos/add\"") &&
+    routes.includes("router.post(\"/v1/vehicles/photos/remove\"") &&
+    routes.includes("router.post(\"/v1/vehicles/photos/reorder\"") &&
+    schemas.includes("addVehiclePhotoSchema") &&
+    schemas.includes("removeVehiclePhotoSchema") &&
+    schemas.includes("reorderVehiclePhotosSchema") &&
+    domainModels.includes("photos: VehicleImage[]") &&
+    repository.includes("addVehiclePhoto") &&
+    repository.includes("removeVehiclePhoto") &&
+    repository.includes("reorderVehiclePhotos")
+);
 report("API_INVOICE_ANALYSIS_USES_OCR_TEXT", routes.includes("invoiceAnalysis.analyze(body)") && invoiceUseCase.includes("ocrText.length"));
 report(
   "API_INVOICE_GENKIT_DOCUMENT_FLOW",
@@ -134,7 +148,6 @@ report("API_PUSH_DEVICE_TOKEN_ROUTES", routes.includes("router.post(\"/v1/device
 report("API_TRANSFER_SENDS_PUSH_NOTIFICATIONS", routes.includes("void pushNotifications?.notifyVehicleTransferRequested(transfer)") && routes.includes("void pushNotifications?.notifyVehicleTransferAccepted(result.transfer)") && routes.includes("void pushNotifications?.notifyVehicleTransferDeclined(result.transfer)"));
 report("API_PUBLIC_REPORT_BASE_URL_CLOUD_RUN", read("src/domain/factories.ts").includes("https://cardocs-backend-5qq5b33fha-rj.a.run.app") && !read("src/domain/factories.ts").includes("cardocs-app.web.app"));
 
-const repository = read("src/infrastructure/firebaseGarageRepository.ts");
 const pushUseCase = read("src/application/pushNotifications.ts");
 const pushTokenStore = read("src/infrastructure/firebasePushDeviceTokenStore.ts");
 const pushSender = read("src/infrastructure/firebaseCloudMessagingPushSender.ts");

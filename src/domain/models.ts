@@ -100,6 +100,7 @@ export interface VehicleProfile extends VehicleCandidate {
   nextServiceTitle: string;
   nextServiceDistance: string;
   statusTags: string[];
+  photos: VehicleImage[];
 }
 
 export interface InvestmentSummary {

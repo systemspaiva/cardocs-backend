@@ -38,6 +38,9 @@ import {
   vehicleImageLookupSchema,
   vehicleRegistrationSchema,
   manualVehicleRegistrationSchema,
+  addVehiclePhotoSchema,
+  removeVehiclePhotoSchema,
+  reorderVehiclePhotosSchema,
   updateMileageSchema,
   updateVehiclePhotoSchema
 } from "./schemas.js";
@@ -175,6 +178,29 @@ export function createRouter(
       mimeType: body.mimeType,
       base64Data: body.base64Data
     });
+    response.json(updated);
+  }));
+
+  router.post("/v1/vehicles/photos/add", asyncHandler(async (request: AuthenticatedRequest, response) => {
+    const body = addVehiclePhotoSchema.parse(request.body);
+    const ownerId = requireOwnerId(request);
+    const updated = await repository.addVehiclePhoto(ownerId, body.vehicleID, {
+      mimeType: body.mimeType,
+      base64Data: body.base64Data,
+      makePrimary: body.makePrimary
+    });
+    response.json(updated);
+  }));
+
+  router.post("/v1/vehicles/photos/remove", asyncHandler(async (request: AuthenticatedRequest, response) => {
+    const body = removeVehiclePhotoSchema.parse(request.body);
+    const updated = await repository.removeVehiclePhoto(requireOwnerId(request), body.vehicleID, body.photoURL);
+    response.json(updated);
+  }));
+
+  router.post("/v1/vehicles/photos/reorder", asyncHandler(async (request: AuthenticatedRequest, response) => {
+    const body = reorderVehiclePhotosSchema.parse(request.body);
+    const updated = await repository.reorderVehiclePhotos(requireOwnerId(request), body.vehicleID, body.photoURLs);
     response.json(updated);
   }));
 

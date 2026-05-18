@@ -159,6 +159,7 @@ export const vehicleCandidateSchema = z.object({
   year: z.string().min(1),
   color: z.string().min(1),
   image: vehicleImageSchema.nullable().optional(),
+  photos: z.array(vehicleImageSchema).optional(),
   fipe: vehicleFipeQuoteSchema.nullable().optional(),
   details: vehiclePlateDetailsSchema.nullable().optional()
 });
@@ -184,8 +185,22 @@ export const updateMileageSchema = z.object({
 
 export const updateVehiclePhotoSchema = z.object({
   vehicleID: vehicleIDSchema,
-  mimeType: z.enum(["image/jpeg", "image/png", "image/webp", "image/heic"]),
+  mimeType: z.enum(["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"]),
   base64Data: z.string().min(16).max(10_000_000)
+});
+
+export const addVehiclePhotoSchema = updateVehiclePhotoSchema.extend({
+  makePrimary: z.boolean().default(false)
+});
+
+export const removeVehiclePhotoSchema = z.object({
+  vehicleID: vehicleIDSchema,
+  photoURL: z.string().url()
+});
+
+export const reorderVehiclePhotosSchema = z.object({
+  vehicleID: vehicleIDSchema,
+  photoURLs: z.array(z.string().url()).min(1).max(12)
 });
 
 export const plateLookupSchema = z.object({

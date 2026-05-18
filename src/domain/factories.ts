@@ -106,6 +106,7 @@ export function toVehicleProfile(
     nextServiceDistance: "Pronto para importar historico",
     statusTags: [options.plateVerified ? "Placa Verificada" : "Placa cadastrada"],
     image: candidate.image ?? null,
+    photos: candidate.image ? [candidate.image] : [],
     fipe: candidate.fipe ?? null,
     details: candidate.details ?? null
   };
@@ -137,6 +138,7 @@ export function toManualVehicleProfile(
     nextServiceDistance: "Pronto para importar histórico",
     statusTags: ["Cadastrado manualmente"],
     image: null,
+    photos: [],
     fipe: null,
     details: null
   };
