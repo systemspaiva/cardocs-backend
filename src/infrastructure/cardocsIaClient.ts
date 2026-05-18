@@ -2,7 +2,8 @@ import { GoogleAuth, IdTokenClient } from "google-auth-library";
 import { AppError, ExternalProviderError, ProviderNotConfiguredError } from "../application/errors.js";
 import {
   AutomotiveChatRequest,
-  AutomotiveChatResponse,
+  AutomotiveChatStreamEvent,
+  AutomotiveChatStreamOptions,
   CardocsIaGateway,
   PartReplacementRecommendation,
   PartReplacementRecommendationRequest
@@ -43,8 +44,13 @@ export class CardocsIaClient implements CardocsIaGateway {
     return this.post("/internal/v1/part-replacements/recommendation", input);
   }
 
-  async answerAutomotiveChat(input: AutomotiveChatRequest): Promise<AutomotiveChatResponse> {
-    return this.post("/internal/v1/automotive-chat", input);
+  async *streamAutomotiveChat(
+    input: AutomotiveChatRequest,
+    options: AutomotiveChatStreamOptions = {}
+  ): AsyncIterable<AutomotiveChatStreamEvent> {
+    for await (const event of this.postStream("/internal/v1/automotive-chat", input, options)) {
+      yield event;
+    }
   }
 
   private async post<T>(path: string, body: unknown): Promise<T> {
@@ -95,6 +101,86 @@ export class CardocsIaClient implements CardocsIaGateway {
     }
   }
 
+  private async *postStream(
+    path: string,
+    body: unknown,
+    options: AutomotiveChatStreamOptions
+  ): AsyncIterable<AutomotiveChatStreamEvent> {
+    const url = `${this.baseURL}${path}`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+    const abort = () => controller.abort();
+    options.signal?.addEventListener("abort", abort, { once: true });
+    let receivedDone = false;
+
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        signal: controller.signal,
+        headers: await this.streamHeaders(url),
+        body: JSON.stringify(body)
+      });
+
+      if (!response.ok) {
+        throw toAppError(response.status, await parseErrorPayload(response));
+      }
+
+      if (!response.body) {
+        throw new ExternalProviderError("Backend de IA nao retornou stream.");
+      }
+
+      for await (const event of readSseEvents(response.body)) {
+        if (event.event === "delta") {
+          const payload = parseStreamPayload<{ type?: string; text?: string }>(event.data);
+          if (typeof payload.text === "string" && payload.text.length > 0) {
+            yield { type: "delta", text: payload.text };
+          }
+          continue;
+        }
+
+        if (event.event === "done") {
+          const payload = parseStreamPayload<{ type?: string; scope?: "automotive" | "out_of_scope" }>(event.data);
+          receivedDone = true;
+          yield {
+            type: "done",
+            scope: payload.scope === "out_of_scope" ? "out_of_scope" : "automotive"
+          };
+          return;
+        }
+
+        if (event.event === "error") {
+          throw new ExternalProviderError("Backend de IA nao conseguiu processar o chat.");
+        }
+      }
+
+      if (!receivedDone) {
+        throw new ExternalProviderError("Backend de IA encerrou o stream antes de concluir a resposta.");
+      }
+    } catch (error) {
+      if (error instanceof AppError) throw error;
+      throw new ExternalProviderError("Backend de IA indisponivel.");
+    } finally {
+      options.signal?.removeEventListener("abort", abort);
+      clearTimeout(timeout);
+    }
+  }
+
+  private async streamHeaders(url: string): Promise<Record<string, string>> {
+    const headers: Record<string, string> = {
+      "accept": "text/event-stream",
+      "content-type": "application/json"
+    };
+
+    if (isLocalURL(this.baseURL)) return headers;
+
+    const client = await this.idTokenClient();
+    const authHeaders = await client.getRequestHeaders(url);
+    authHeaders.forEach((value, key) => {
+      headers[key] = value;
+    });
+    return headers;
+  }
+
   private idTokenClient(): Promise<IdTokenClient> {
     if (!this.idTokenClientPromise) {
       this.idTokenClientPromise = this.auth.getIdTokenClient(this.baseURL);
@@ -119,6 +205,64 @@ async function parseJSON(response: Response): Promise<unknown> {
     return JSON.parse(text) as unknown;
   } catch {
     return {};
+  }
+}
+
+async function parseErrorPayload(response: Response): Promise<ErrorPayload | undefined> {
+  const payload = await parseJSON(response);
+  return payload && typeof payload === "object" ? payload as ErrorPayload : undefined;
+}
+
+interface SseEvent {
+  event: string;
+  data: string;
+}
+
+async function* readSseEvents(body: ReadableStream<Uint8Array>): AsyncGenerator<SseEvent> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    buffer = buffer.replace(/\r\n/g, "\n");
+
+    let boundaryIndex = buffer.indexOf("\n\n");
+    while (boundaryIndex >= 0) {
+      const rawEvent = buffer.slice(0, boundaryIndex);
+      buffer = buffer.slice(boundaryIndex + 2);
+      const event = parseSseEvent(rawEvent);
+      if (event) yield event;
+      boundaryIndex = buffer.indexOf("\n\n");
+    }
+  }
+
+  buffer += decoder.decode();
+  const event = parseSseEvent(buffer.replace(/\r\n/g, "\n"));
+  if (event) yield event;
+}
+
+function parseSseEvent(rawEvent: string): SseEvent | null {
+  const lines = rawEvent.split("\n");
+  const event = lines
+    .find((line) => line.startsWith("event:"))
+    ?.slice("event:".length)
+    .trim() || "message";
+  const data = lines
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => line.slice("data:".length).trimStart())
+    .join("\n");
+  return data ? { event, data } : null;
+}
+
+function parseStreamPayload<T>(data: string): T {
+  try {
+    return JSON.parse(data) as T;
+  } catch {
+    throw new ExternalProviderError("Backend de IA retornou stream invalido.");
   }
 }
 

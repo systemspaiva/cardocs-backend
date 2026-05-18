@@ -40,8 +40,16 @@ export interface AutomotiveChatResponse {
   scope: AutomotiveChatScope;
 }
 
+export type AutomotiveChatStreamEvent =
+  | { type: "delta"; text: string }
+  | { type: "done"; scope: AutomotiveChatScope };
+
+export interface AutomotiveChatStreamOptions {
+  signal?: AbortSignal;
+}
+
 export interface CardocsIaGateway {
   analyzeInvoice(input: InvoiceDocumentInput): Promise<InvoiceScanDraft>;
   recommendPartReplacement(input: PartReplacementRecommendationRequest): Promise<PartReplacementRecommendation>;
-  answerAutomotiveChat(input: AutomotiveChatRequest): Promise<AutomotiveChatResponse>;
+  streamAutomotiveChat(input: AutomotiveChatRequest, options?: AutomotiveChatStreamOptions): AsyncIterable<AutomotiveChatStreamEvent>;
 }

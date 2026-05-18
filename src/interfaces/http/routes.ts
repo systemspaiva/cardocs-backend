@@ -251,10 +251,35 @@ export function createRouter(
     const ownerId = requireOwnerId(request);
     await ensureAutomotiveChatAccess(userRepository, ownerId);
     const dashboard = await repository.loadDashboard(ownerId);
-    response.json(await requireCardocsIa(cardocsIa).answerAutomotiveChat({
-      messages: sanitizeAutomotiveChatMessages(body.messages),
-      context: buildAutomotiveChatContext(dashboard)
-    }));
+    const gateway = requireCardocsIa(cardocsIa);
+    const controller = new AbortController();
+    request.on("close", () => {
+      if (!response.writableEnded) {
+        controller.abort();
+      }
+    });
+    writeSseHeaders(response);
+    try {
+      for await (const event of gateway.streamAutomotiveChat({
+        messages: sanitizeAutomotiveChatMessages(body.messages),
+        context: buildAutomotiveChatContext(dashboard)
+      }, { signal: controller.signal })) {
+        if (response.destroyed) {
+          controller.abort();
+          break;
+        }
+        writeSseEvent(response, event.type, event);
+      }
+    } catch {
+      if (!response.destroyed) {
+        writeSseEvent(response, "error", {
+          type: "error",
+          message: "A IA automotiva nao conseguiu responder agora."
+        });
+      }
+    } finally {
+      response.end();
+    }
   }));
 
   router.post("/v1/vehicle-insurance", asyncHandler(async (request: AuthenticatedRequest, response) => {
@@ -416,6 +441,20 @@ function requireCardocsIa(cardocsIa: CardocsIaGateway | null): CardocsIaGateway 
     throw new ProviderNotConfiguredError("Backend de IA ainda nao configurado.");
   }
   return cardocsIa;
+}
+
+function writeSseHeaders(response: Response): void {
+  response.status(200);
+  response.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+  response.setHeader("Cache-Control", "no-cache, no-transform");
+  response.setHeader("Connection", "keep-alive");
+  response.setHeader("X-Accel-Buffering", "no");
+  response.flushHeaders();
+}
+
+function writeSseEvent(response: Response, event: string, data: unknown): void {
+  response.write(`event: ${event}\n`);
+  response.write(`data: ${JSON.stringify(data)}\n\n`);
 }
 
 function appAccountTokenForOwnerId(ownerId: string): string {
