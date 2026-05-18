@@ -253,7 +253,7 @@ export function createRouter(
     const dashboard = await repository.loadDashboard(ownerId);
     const gateway = requireCardocsIa(cardocsIa);
     const controller = new AbortController();
-    request.on("close", () => {
+    response.on("close", () => {
       if (!response.writableEnded) {
         controller.abort();
       }
@@ -270,7 +270,10 @@ export function createRouter(
         }
         writeSseEvent(response, event.type, event);
       }
-    } catch {
+    } catch (error) {
+      console.warn("automotive_chat_stream_failed", {
+        message: error instanceof Error ? error.message : "unknown"
+      });
       if (!response.destroyed) {
         writeSseEvent(response, "error", {
           type: "error",
