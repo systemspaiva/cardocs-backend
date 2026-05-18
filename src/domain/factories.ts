@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import {
   InvestmentSummary,
   PartHealth,
+  PartReplacementRecord,
   ResaleDossier,
   VehicleCandidate,
   VehicleGarage,
@@ -145,8 +146,42 @@ export function pendingHealth(vehicle: VehicleProfile): PartHealth[] {
     partHealth(vehicle, "oil", "drop", "Oleo e Filtros", "Aguardando primeira nota"),
     partHealth(vehicle, "tires", "circle.dotted", "Pneus", "Sem historico importado"),
     partHealth(vehicle, "brakes", "record.circle", "Freios", "Aguardando revisao"),
-    partHealth(vehicle, "battery", "bolt.heart", "Bateria", "Sem registro ainda")
+    partHealth(vehicle, "battery", "bolt.fill", "Bateria", "Sem registro ainda")
   ];
+}
+
+export function calculatePartHealth(vehicle: VehicleProfile, replacements: PartReplacementRecord[]): PartHealth[] {
+  if (replacements.length === 0) {
+    return pendingHealth(vehicle);
+  }
+
+  const latestByPart = new Map<string, PartReplacementRecord>();
+  for (const replacement of replacements) {
+    const key = partIdentityKey(replacement.partName);
+    const current = latestByPart.get(key);
+    if (!current || isReplacementNewer(replacement, current)) {
+      latestByPart.set(key, replacement);
+    }
+  }
+
+  return Array.from(latestByPart.values())
+    .map((replacement) => toPartHealth(vehicle, replacement))
+    .sort((left, right) => {
+      if (left.tone !== right.tone) return toneRank(left.tone) - toneRank(right.tone);
+      return left.percentage - right.percentage;
+    });
+}
+
+export function iconNameForPartName(value: string): string {
+  const normalized = partIdentityKey(value);
+  if (/oleo|oil|filtro/.test(normalized)) return "drop";
+  if (/pneu|tire|roda/.test(normalized)) return "circle.dotted";
+  if (/freio|brake|pastilha|disco/.test(normalized)) return "record.circle";
+  if (/bateria|battery/.test(normalized)) return "bolt.fill";
+  if (/suspens|amortecedor/.test(normalized)) return "car.side";
+  if (/correia|belt/.test(normalized)) return "link";
+  if (/vela|ignicao/.test(normalized)) return "sparkplug";
+  return "wrench.adjustable";
 }
 
 export function generateResaleDossier(
@@ -260,6 +295,147 @@ function partHealth(vehicle: VehicleProfile, key: string, iconName: string, name
     percentage: 0,
     replacedAt: "Nao informado",
     limit: "Nao informado",
-    tone: "neutral"
+    tone: "neutral",
+    lastServiceDate: null,
+    nextServiceDate: null
   };
+}
+
+function toPartHealth(vehicle: VehicleProfile, replacement: PartReplacementRecord): PartHealth {
+  const currentMileage = Math.max(0, Math.trunc(vehicle.mileage || 0));
+  const lifeKm = positiveIntegerOrNull(replacement.lifeKm);
+  const lifeMonths = positiveIntegerOrNull(replacement.lifeMonths);
+  const serviceDate = parseMaintenanceDate(replacement.serviceDate);
+  const dueDate = serviceDate && lifeMonths ? addMonths(serviceDate, lifeMonths) : null;
+  const nextMileage = lifeKm ? replacement.mileageAtService + lifeKm : null;
+  const kmRemaining = nextMileage === null ? null : nextMileage - currentMileage;
+  const dayRemaining = dueDate ? wholeDaysBetween(startOfToday(), dueDate) : null;
+  const percentages = [
+    lifeKm ? clampPercent(Math.round(((nextMileage! - currentMileage) / lifeKm) * 100)) : null,
+    serviceDate && dueDate ? clampPercent(Math.round((wholeDaysBetween(startOfToday(), dueDate) / Math.max(1, wholeDaysBetween(serviceDate, dueDate))) * 100)) : null
+  ].filter((value): value is number => value !== null);
+  const percentage = percentages.length > 0 ? Math.min(...percentages) : 100;
+  const limitParts = [
+    nextMileage === null ? null : `${formatMileage(nextMileage)} km`,
+    dueDate === null ? null : formatMaintenanceDate(dueDate)
+  ].filter((value): value is string => Boolean(value));
+
+  return {
+    id: deterministicUuid("part-health", `${vehicle.id}:${partIdentityKey(replacement.partName)}`),
+    iconName: replacement.iconName || iconNameForPartName(replacement.partName),
+    name: replacement.partName,
+    message: replacementStatusMessage(percentage, kmRemaining, dayRemaining),
+    percentage,
+    replacedAt: `${formatMileage(replacement.mileageAtService)} km`,
+    limit: limitParts.join(" / ") || "Nao informado",
+    tone: percentage <= 35 ? "warning" : "healthy",
+    lastServiceDate: replacement.serviceDate,
+    nextServiceDate: dueDate === null ? null : formatMaintenanceDate(dueDate)
+  };
+}
+
+function replacementStatusMessage(percentage: number, kmRemaining: number | null, dayRemaining: number | null): string {
+  if (percentage <= 0) return "Troca vencida";
+  if (kmRemaining !== null && kmRemaining <= 1000) return `Troca em ${formatMileage(Math.max(0, kmRemaining))} km`;
+  if (dayRemaining !== null && dayRemaining <= 30) return `Troca em ${Math.max(0, dayRemaining)} dias`;
+  if (percentage <= 35) return "Planeje a proxima troca";
+  return "Dentro do plano";
+}
+
+function normalizePartKey(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9]+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function partIdentityKey(value: string): string {
+  return stripServicePrefix(normalizePartKey(value)) || normalizePartKey(value);
+}
+
+function stripServicePrefix(value: string): string {
+  return value
+    .replace(/^(troca|substituicao|revisao|servico|manutencao)\s+(de|do|da|dos|das)?\s*/i, "")
+    .trim();
+}
+
+function isReplacementNewer(left: PartReplacementRecord, right: PartReplacementRecord): boolean {
+  if (left.mileageAtService !== right.mileageAtService) {
+    return left.mileageAtService > right.mileageAtService;
+  }
+  return maintenanceDateTime(left.serviceDate) >= maintenanceDateTime(right.serviceDate);
+}
+
+function toneRank(tone: PartHealth["tone"]): number {
+  switch (tone) {
+    case "warning":
+      return 0;
+    case "neutral":
+      return 1;
+    case "healthy":
+      return 2;
+  }
+}
+
+function positiveIntegerOrNull(value: number | null | undefined): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.trunc(value) : null;
+}
+
+function clampPercent(value: number): number {
+  return Math.max(0, Math.min(100, value));
+}
+
+function parseMaintenanceDate(value: string): Date | null {
+  const trimmed = value.trim();
+  const brMatch = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(trimmed);
+  if (brMatch) {
+    const [, day, month, year] = brMatch;
+    const date = new Date(Number(year), Number(month) - 1, Number(day));
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  const date = new Date(trimmed);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function maintenanceDateTime(value: string): number {
+  return parseMaintenanceDate(value)?.getTime() ?? 0;
+}
+
+function addMonths(date: Date, months: number): Date {
+  const next = new Date(date);
+  const originalDay = next.getDate();
+  next.setDate(1);
+  next.setMonth(next.getMonth() + months);
+  const lastDayOfTargetMonth = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
+  next.setDate(Math.min(originalDay, lastDayOfTargetMonth));
+  return next;
+}
+
+function startOfToday(): Date {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return today;
+}
+
+function wholeDaysBetween(start: Date, end: Date): number {
+  const startDay = new Date(start);
+  const endDay = new Date(end);
+  startDay.setHours(0, 0, 0, 0);
+  endDay.setHours(0, 0, 0, 0);
+  return Math.ceil((endDay.getTime() - startDay.getTime()) / 86_400_000);
+}
+
+function formatMaintenanceDate(date: Date): string {
+  return [
+    String(date.getDate()).padStart(2, "0"),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getFullYear())
+  ].join("/");
+}
+
+function formatMileage(value: number): string {
+  return Math.max(0, Math.trunc(value)).toLocaleString("pt-BR");
 }

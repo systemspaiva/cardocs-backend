@@ -4,6 +4,7 @@ import { getAuth, type DecodedIdToken, type UserRecord } from "firebase-admin/au
 import { DocumentAttachmentStore } from "../../application/documentAttachments.js";
 import { DeleteAccountUseCase } from "../../application/accountDeletion.js";
 import { PushNotificationService } from "../../application/pushNotifications.js";
+import { PartReplacementRecommendationProvider, PartReplacementRecommendationUseCase } from "../../application/partReplacementRecommendation.js";
 import { SubscriptionTransactionVerifier } from "../../application/subscriptions.js";
 import {
   generateResaleDossier,
@@ -18,8 +19,10 @@ import { FirebaseGarageRepository } from "../../infrastructure/firebaseGarageRep
 import { FirebaseUserRepository } from "../../infrastructure/firebaseUserRepository.js";
 import { ForbiddenError, NotFoundError, ProviderNotConfiguredError, UnauthorizedError, ValidationError } from "../../application/errors.js";
 import {
+  createPartReplacementSchema,
   createVehicleDocumentSchema,
   invoiceDocumentInputSchema,
+  partReplacementRecommendationSchema,
   plateLookupSchema,
   pushDeviceTokenRegistrationSchema,
   pushDeviceTokenRemovalSchema,
@@ -53,12 +56,14 @@ export function createRouter(
   invoiceDocumentExtractionProvider: InvoiceDocumentExtractionProvider | null = null,
   documentAttachmentStore: DocumentAttachmentStore | null = null,
   pushNotifications: PushNotificationService | null = null,
-  subscriptionVerifier: SubscriptionTransactionVerifier | null = null
+  subscriptionVerifier: SubscriptionTransactionVerifier | null = null,
+  partRecommendationProvider: PartReplacementRecommendationProvider | null = null
 ): Router {
   const router = Router();
   const plateLookup = new VehiclePlateLookupUseCase(vehiclePlateProvider);
   const imageLookup = new VehicleImageLookupUseCase(vehicleImageProvider);
   const invoiceAnalysis = new InvoiceAnalysisUseCase(invoiceExtractionProvider, invoiceDocumentExtractionProvider);
+  const partRecommendations = new PartReplacementRecommendationUseCase(partRecommendationProvider);
 
   router.get("/v1/health", (_request, response) => {
     response.json({ status: "UP", runtime: "node" });
@@ -198,6 +203,18 @@ export function createRouter(
       result.document.attachment = attachment;
     }
     response.status(201).json(await repository.saveAutomationResult(requireOwnerId(request), body.vehicleID, result));
+  }));
+
+  router.post("/v1/part-replacements", asyncHandler(async (request: AuthenticatedRequest, response) => {
+    const body = createPartReplacementSchema.parse(request.body);
+    response.status(201).json(await repository.savePartReplacement(requireOwnerId(request), body));
+  }));
+
+  router.post("/v1/part-replacements/recommendation", asyncHandler(async (request: AuthenticatedRequest, response) => {
+    const body = partReplacementRecommendationSchema.parse(request.body);
+    const ownerId = requireOwnerId(request);
+    const canUseAi = !partRecommendationProvider || await hasPartRecommendationAiAccess(userRepository, ownerId);
+    response.json(await partRecommendations.recommend(body, { useProvider: canUseAi }));
   }));
 
   router.post("/v1/documents", asyncHandler(async (request: AuthenticatedRequest, response) => {
@@ -368,6 +385,11 @@ async function ensureInvoiceScanAccess(userRepository: FirebaseUserRepository, o
   if (!access.hasAccess) {
     throw new ForbiddenError("Assinatura ativa necessaria para escanear notas fiscais.");
   }
+}
+
+async function hasPartRecommendationAiAccess(userRepository: FirebaseUserRepository, ownerId: string): Promise<boolean> {
+  const access = await userRepository.getUserAccessStatus(ownerId);
+  return access.hasAccess;
 }
 
 function toUserProfile(decodedToken: DecodedIdToken, userRecord: UserRecord) {

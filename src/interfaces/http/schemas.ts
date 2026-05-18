@@ -14,12 +14,42 @@ const documentSourceSchema = z.enum(["cameraScan", "fileImport", "photoLibrary"]
 const invoiceSourceSchema = z.enum(["cameraScan", "fileImport", "photoLibrary", "manualEntry"]);
 const pushDeviceTokenSchema = z.string().trim().min(16).max(4096);
 const legalDocumentVersionSchema = z.string().trim().min(1).max(80);
+const maintenanceDateSchema = z
+  .string()
+  .trim()
+  .min(8)
+  .max(20)
+  .refine((value) => {
+    const date = parseMaintenanceDate(value);
+    return date !== null && date.getTime() <= endOfToday().getTime();
+  }, "Data de manutencao invalida.");
 const isoDateStringSchema = z
   .string()
   .trim()
   .min(10)
   .max(64)
   .refine((value) => !Number.isNaN(Date.parse(value)), "Data ISO8601 invalida.");
+
+function parseMaintenanceDate(value: string): Date | null {
+  const brMatch = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(value);
+  if (brMatch) {
+    const [, day, month, year] = brMatch.map(Number);
+    const date = new Date(year, month - 1, day);
+    if (date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day) {
+      return date;
+    }
+    return null;
+  }
+
+  const timestamp = Date.parse(value);
+  return Number.isNaN(timestamp) ? null : new Date(timestamp);
+}
+
+function endOfToday(): Date {
+  const date = new Date();
+  date.setHours(23, 59, 59, 999);
+  return date;
+}
 
 export const syncSubscriptionSchema = z
   .object({
@@ -249,6 +279,28 @@ export const saveInvoiceSchema = z.object({
   vehicleID: vehicleIDSchema,
   draft: invoiceDraftSchema,
   sourceDocument: requiredDocumentInputSchema.nullable().optional()
+});
+
+export const createPartReplacementSchema = z.object({
+  vehicleID: vehicleIDSchema,
+  partName: z.string().trim().min(2).max(80),
+  amount: moneyNumberSchema.min(0).default(0),
+  serviceDate: maintenanceDateSchema,
+  mileageAtService: nonNegativeIntegerSchema,
+  lifeKm: z.coerce.number().int().positive().max(500_000).nullable().optional(),
+  lifeMonths: z.coerce.number().int().positive().max(240).nullable().optional()
+}).superRefine((input, context) => {
+  if (!input.lifeKm && !input.lifeMonths) {
+    context.addIssue({
+      code: "custom",
+      path: ["lifeKm"],
+      message: "Informe a vida util em km ou meses."
+    });
+  }
+});
+
+export const partReplacementRecommendationSchema = z.object({
+  partName: z.string().trim().min(2).max(80)
 });
 
 export const resaleDossierRequestSchema = z.object({

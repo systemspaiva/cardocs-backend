@@ -6,6 +6,7 @@ import {
   MaintenanceRecord,
   MaintenanceRecordUpdate,
   OutgoingVehicleTransfer,
+  PartReplacementRecord,
   ResaleDossier,
   VehicleFipeQuote,
   VehicleDashboard,
@@ -18,11 +19,12 @@ import {
   VaultDocumentUpdate
 } from "../domain/models.js";
 import {
+  calculatePartHealth,
   deterministicUuid,
   emptyDetectedVehicle,
   generateResaleDossier,
+  iconNameForPartName,
   normalizePublicReportSlug,
-  pendingHealth,
   publicReportSlug,
   roundMoney,
   safeMoney,
@@ -187,6 +189,95 @@ export class FirebaseGarageRepository {
     });
 
     return result;
+  }
+
+  async savePartReplacement(ownerId: string, input: {
+    vehicleID: string;
+    partName: string;
+    amount: number;
+    serviceDate: string;
+    mileageAtService: number;
+    lifeKm?: number | null;
+    lifeMonths?: number | null;
+  }): Promise<VehicleDashboard> {
+    const vehicleRef = await this.resolveVehicleRef(ownerId, input.vehicleID);
+    const partName = partNameFromServiceLabel(input.partName);
+    const replacementId = deterministicUuid(
+      "part-replacement",
+      `${ownerId}:${vehicleRef.id}:${partName}:${input.serviceDate}:${input.mileageAtService}:${input.lifeKm ?? ""}:${input.lifeMonths ?? ""}`.toLowerCase()
+    );
+    const recordId = deterministicUuid("maintenance-record", replacementId);
+    const replacementRef = vehicleRef.collection("partReplacements").doc(replacementId);
+    const recordRef = vehicleRef.collection("timeline").doc(recordId);
+    const iconName = iconNameForPartName(partName);
+    const amount = roundMoney(safeMoney(input.amount));
+    const mileageAtService = Math.max(0, Math.trunc(input.mileageAtService));
+    const serviceTitle = `Troca de ${partName}`;
+    const purchaseSummary = maintenancePlanSummary(input.lifeKm ?? null, input.lifeMonths ?? null);
+    const replacement: PartReplacementRecord = {
+      id: replacementId,
+      partName,
+      serviceTitle,
+      iconName,
+      serviceDate: input.serviceDate,
+      amount,
+      mileageAtService,
+      lifeKm: input.lifeKm ?? null,
+      lifeMonths: input.lifeMonths ?? null,
+      maintenanceRecordID: recordId
+    };
+    const record: MaintenanceRecord = {
+      id: recordId,
+      iconName,
+      title: serviceTitle,
+      subtitle: purchaseSummary,
+      date: input.serviceDate,
+      amount,
+      isAIValidated: false,
+      supplierName: null,
+      serviceTitle,
+      purchaseSummary,
+      documentID: null,
+      attachment: null
+    };
+
+    await this.db.runTransaction(async (transaction) => {
+      const [vehicleDoc, recordDoc, replacementDoc] = await Promise.all([
+        transaction.get(vehicleRef),
+        transaction.get(recordRef),
+        transaction.get(replacementRef)
+      ]);
+      if (!vehicleDoc.exists) {
+        throw new NotFoundError("Veiculo nao encontrado para salvar troca de peca.");
+      }
+
+      const currentVehicle = toVehicleProfile(vehicleDoc.data()?.vehicle, vehicleRef.id, { idOverride: vehicleRef.id });
+      const existingRecordAmount = recordDoc.exists ? numberValue(recordDoc.data()?.amount) : 0;
+      const investmentDelta = roundMoney(recordDoc.exists ? amount - existingRecordAmount : amount);
+      const currentInvestment = toInvestmentSummary(vehicleDoc.data()?.investment);
+      const nextInvestment: InvestmentSummary = {
+        total: roundMoney(Math.max(0, currentInvestment.total + investmentDelta)),
+        maintenance: roundMoney(Math.max(0, currentInvestment.maintenance + investmentDelta)),
+        documentsAndTaxes: currentInvestment.documentsAndTaxes
+      };
+      const vehicleUpdate = mileageAtService > currentVehicle.mileage
+        ? { ...currentVehicle, mileage: mileageAtService }
+        : currentVehicle;
+
+      transaction.set(replacementRef, withTimestamps(replacement, replacementDoc.exists), { merge: true });
+      transaction.set(recordRef, withTimestamps(record, recordDoc.exists), { merge: true });
+      transaction.set(
+        vehicleRef,
+        {
+          vehicle: vehicleUpdate,
+          investment: nextInvestment,
+          updatedAt: FieldValue.serverTimestamp()
+        },
+        { merge: true }
+      );
+    });
+
+    return this.loadDashboard(ownerId);
   }
 
   async saveVaultDocument(ownerId: string, vehicleId: string, document: VaultDocument): Promise<VaultDocument> {
@@ -406,12 +497,13 @@ export class FirebaseGarageRepository {
 
       const sourceVehicleRef = this.vehicleRef(currentTransfer.fromOwnerID, currentTransfer.vehicleID);
       const targetVehicleRef = this.vehicleRef(ownerId, currentTransfer.vehicleID);
-      const [sourceVehicleDoc, targetVehicleDoc, timelineSnapshot, documentSnapshot, dossierSnapshot] = await Promise.all([
+      const [sourceVehicleDoc, targetVehicleDoc, timelineSnapshot, documentSnapshot, dossierSnapshot, replacementSnapshot] = await Promise.all([
         transaction.get(sourceVehicleRef),
         transaction.get(targetVehicleRef),
         transaction.get(sourceVehicleRef.collection("timeline")),
         transaction.get(sourceVehicleRef.collection("vaultDocuments")),
-        transaction.get(sourceVehicleRef.collection("dossiers"))
+        transaction.get(sourceVehicleRef.collection("dossiers")),
+        transaction.get(sourceVehicleRef.collection("partReplacements"))
       ]);
       if (!sourceVehicleDoc.exists) {
         throw new NotFoundError("Veiculo original nao encontrado para transferencia.");
@@ -430,8 +522,9 @@ export class FirebaseGarageRepository {
       copyVehicleSubcollection(transaction, targetVehicleRef, timelineSnapshot);
       copyVehicleSubcollection(transaction, targetVehicleRef, documentSnapshot);
       copyVehicleSubcollection(transaction, targetVehicleRef, dossierSnapshot);
+      copyVehicleSubcollection(transaction, targetVehicleRef, replacementSnapshot);
 
-      for (const doc of [...timelineSnapshot.docs, ...documentSnapshot.docs, ...dossierSnapshot.docs]) {
+      for (const doc of [...timelineSnapshot.docs, ...documentSnapshot.docs, ...dossierSnapshot.docs, ...replacementSnapshot.docs]) {
         transaction.delete(doc.ref);
       }
       transaction.delete(sourceVehicleRef);
@@ -456,20 +549,22 @@ export class FirebaseGarageRepository {
 
   private async loadGarageFromVehicleDoc(ownerId: string, vehicleId: string, data: FirebaseFirestore.DocumentData): Promise<VehicleGarage> {
     const vehicle = toVehicleProfile(data.vehicle, vehicleId, { idOverride: vehicleId });
-    const [timelineSnapshot, documentSnapshot, dossierSnapshot] = await Promise.all([
+    const [timelineSnapshot, documentSnapshot, dossierSnapshot, replacementSnapshot] = await Promise.all([
       this.vehicleRef(ownerId, vehicleId).collection("timeline").orderBy("createdAt", "desc").get(),
       this.vehicleRef(ownerId, vehicleId).collection("vaultDocuments").orderBy("createdAt", "desc").get(),
-      this.vehicleRef(ownerId, vehicleId).collection("dossiers").doc("current").get()
+      this.vehicleRef(ownerId, vehicleId).collection("dossiers").doc("current").get(),
+      this.vehicleRef(ownerId, vehicleId).collection("partReplacements").orderBy("createdAt", "desc").get()
     ]);
 
     const timeline = timelineSnapshot.docs.map((doc) => toMaintenanceRecord(doc.data(), doc.id));
     const vaultDocuments = documentSnapshot.docs.map((doc) => toVaultDocument(doc.data(), doc.id));
+    const partReplacements = replacementSnapshot.docs.map((doc) => toPartReplacementRecord(doc.data(), doc.id));
     const garageBase = {
       id: vehicleId,
       vehicle,
       investment: toInvestmentSummary(data.investment),
       timeline,
-      healthItems: pendingHealth(vehicle),
+      healthItems: calculatePartHealth(vehicle, partReplacements),
       vaultDocuments,
       resaleDossier: generateResaleDossier(vehicle, { timeline, vaultDocuments })
     };
@@ -691,6 +786,22 @@ function toMaintenanceRecord(value: FirebaseFirestore.DocumentData, fallbackId: 
   };
 }
 
+function toPartReplacementRecord(value: FirebaseFirestore.DocumentData, fallbackId: string): PartReplacementRecord {
+  const partName = cleanLabel(value.partName, stringValue(value.serviceTitle, "Peca"));
+  return {
+    id: stringValue(value.id, fallbackId),
+    partName,
+    serviceTitle: cleanLabel(value.serviceTitle, partName),
+    iconName: stringValue(value.iconName, iconNameForPartName(partName)),
+    serviceDate: stringValue(value.serviceDate),
+    amount: numberValue(value.amount),
+    mileageAtService: numberValue(value.mileageAtService),
+    lifeKm: nullableNumberValue(value.lifeKm),
+    lifeMonths: nullableNumberValue(value.lifeMonths),
+    maintenanceRecordID: stringValue(value.maintenanceRecordID)
+  };
+}
+
 function toVaultDocument(value: FirebaseFirestore.DocumentData, fallbackId: string): VaultDocument {
   const title = stringValue(value.title);
   const serviceTitle = stringValue(value.serviceTitle, title) || null;
@@ -813,4 +924,30 @@ function isDocumentOrTaxRecord(record: MaintenanceRecord): boolean {
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase();
   return /(doc|imposto|ipva|licenciamento|taxa|seguro)/.test(normalized);
+}
+
+function cleanLabel(value: unknown, fallback: string): string {
+  const cleaned = stringValue(value, fallback).split(/\s+/).join(" ").trim();
+  return cleaned || fallback;
+}
+
+function partNameFromServiceLabel(value: unknown): string {
+  const cleaned = cleanLabel(value, "Peca");
+  const partName = cleaned
+    .replace(/^(troca|substituicao|revisao|servico|manutencao)\s+(de|do|da|dos|das)?\s*/i, "")
+    .trim();
+  return partName || cleaned;
+}
+
+function maintenancePlanSummary(lifeKm: number | null, lifeMonths: number | null): string {
+  const parts = [
+    typeof lifeKm === "number" && Number.isFinite(lifeKm) && lifeKm > 0
+      ? `${Math.trunc(lifeKm).toLocaleString("pt-BR")} km`
+      : null,
+    typeof lifeMonths === "number" && Number.isFinite(lifeMonths) && lifeMonths > 0
+      ? `${Math.trunc(lifeMonths)} meses`
+      : null
+  ].filter((value): value is string => Boolean(value));
+
+  return parts.length > 0 ? `Vida util planejada: ${parts.join(" / ")}` : "Vida util em acompanhamento";
 }

@@ -13,6 +13,7 @@ import { FirebasePushDeviceTokenStore } from "./infrastructure/firebasePushDevic
 import { FirebaseStorageDocumentAttachmentStore } from "./infrastructure/firebaseStorageDocumentAttachmentStore.js";
 import { FirebaseUserRepository } from "./infrastructure/firebaseUserRepository.js";
 import { GeminiInvoiceExtractionProvider } from "./infrastructure/geminiInvoiceExtractionProvider.js";
+import { GeminiPartRecommendationProvider } from "./infrastructure/geminiPartRecommendationProvider.js";
 import { AppStoreSubscriptionVerifier } from "./infrastructure/appStoreSubscriptionVerifier.js";
 import { DeleteAccountUseCase } from "./application/accountDeletion.js";
 import { PushNotificationService } from "./application/pushNotifications.js";
@@ -30,6 +31,7 @@ const firestore = getFirestore();
 const vehiclePlateProvider = ApiPlacasVehicleDataProvider.fromEnvironment();
 const vehicleImageProvider = CarsXeVehicleImageProvider.fromEnvironment();
 const invoiceExtractionProvider = GeminiInvoiceExtractionProvider.fromEnvironment();
+const partRecommendationProvider = GeminiPartRecommendationProvider.fromEnvironment();
 const documentAttachmentStore = FirebaseStorageDocumentAttachmentStore.fromDefaultBucket();
 const subscriptionVerifier = AppStoreSubscriptionVerifier.fromEnvironment();
 const pushNotifications = new PushNotificationService(
@@ -49,7 +51,8 @@ app.use(createRouter(
   invoiceExtractionProvider,
   documentAttachmentStore,
   pushNotifications,
-  subscriptionVerifier
+  subscriptionVerifier,
+  partRecommendationProvider
 ));
 app.use(errorHandler);
 

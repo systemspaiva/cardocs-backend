@@ -130,6 +130,21 @@ export interface PartHealth {
   replacedAt: string;
   limit: string;
   tone: PartHealthTone;
+  lastServiceDate?: string | null;
+  nextServiceDate?: string | null;
+}
+
+export interface PartReplacementRecord {
+  id: string;
+  partName: string;
+  serviceTitle: string;
+  iconName: string;
+  serviceDate: string;
+  amount: number;
+  mileageAtService: number;
+  lifeKm?: number | null;
+  lifeMonths?: number | null;
+  maintenanceRecordID: string;
 }
 
 export interface VaultDocument {
