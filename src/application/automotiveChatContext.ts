@@ -6,7 +6,10 @@ import {
   MaintenanceRecord,
   PartReplacementRecord,
   PartHealth,
+  InvestmentSummary,
+  InvoiceLineItem,
   VaultDocument,
+  VehicleInsurance,
   VehicleDashboard,
   VehicleGarage,
   VehicleProfile
@@ -37,15 +40,12 @@ export function sanitizeAutomotiveChatMessages(messages: AutomotiveChatMessage[]
 function toGarageContext(garage: VehicleGarage) {
   return compactObject({
     vehicle: toVehicleContext(garage.vehicle),
+    investment: toInvestmentContext(garage.investment),
     maintenanceHistory: garage.timeline.slice(0, 80).map(toMaintenanceContext),
     partsHealth: garage.healthItems.slice(0, 80).map(toPartHealthContext),
     partReplacements: garage.partReplacements.slice(0, 80).map(toPartReplacementContext),
     documents: garage.vaultDocuments.slice(0, 80).map(toDocumentContext),
-    insurance: garage.insurance ? compactObject({
-      hasInsurance: true,
-      coverages: cleanText(garage.insurance.coverages),
-      validUntil: cleanText(garage.insurance.validUntil)
-    }) : undefined
+    insurance: garage.insurance ? toInsuranceContext(garage.insurance) : undefined
   });
 }
 
@@ -80,12 +80,22 @@ function toVehicleContext(vehicle: VehicleProfile) {
   });
 }
 
+function toInvestmentContext(investment: InvestmentSummary) {
+  return compactObject({
+    total: money(investment.total),
+    maintenance: money(investment.maintenance),
+    documentsAndTaxes: money(investment.documentsAndTaxes)
+  });
+}
+
 function toMaintenanceContext(record: MaintenanceRecord) {
   return compactObject({
     title: cleanText(record.title),
     subtitle: cleanText(record.subtitle),
     date: cleanText(record.date),
+    amount: money(record.amount),
     isAIValidated: record.isAIValidated,
+    supplierName: cleanText(record.supplierName ?? ""),
     serviceTitle: cleanText(record.serviceTitle ?? ""),
     purchaseSummary: cleanText(record.purchaseSummary ?? ""),
     expenseKind: record.expenseKind ?? undefined
@@ -111,6 +121,7 @@ function toPartReplacementContext(record: PartReplacementRecord) {
     brandName: cleanText(record.brandName ?? ""),
     serviceTitle: cleanText(record.serviceTitle),
     serviceDate: cleanText(record.serviceDate),
+    amount: money(record.amount),
     mileageAtService: record.mileageAtService,
     lifeKm: record.lifeKm ?? undefined,
     lifeMonths: record.lifeMonths ?? undefined,
@@ -123,17 +134,41 @@ function toDocumentContext(document: VaultDocument) {
   return compactObject({
     title: cleanText(document.title),
     date: cleanText(document.date),
+    amount: money(document.amount),
     status: cleanText(document.status),
     kind: document.kind ?? undefined,
     documentType: cleanText(document.documentType ?? ""),
+    supplierName: cleanText(document.supplierName ?? ""),
     serviceTitle: cleanText(document.serviceTitle ?? ""),
     purchaseSummary: cleanText(document.purchaseSummary ?? ""),
     expenseKind: document.expenseKind ?? undefined,
     source: document.source ?? undefined,
     lineItems: document.lineItems
-      ?.map((item) => cleanText(item.description))
-      .filter(Boolean)
+      ?.map(toLineItemContext)
+      .filter((item) => Object.keys(item).length > 0)
       .slice(0, 30)
+  });
+}
+
+function toLineItemContext(item: InvoiceLineItem) {
+  return compactObject({
+    description: cleanText(item.description),
+    quantity: item.quantity ?? undefined,
+    unitAmount: money(item.unitAmount),
+    totalAmount: money(item.totalAmount)
+  });
+}
+
+function toInsuranceContext(insurance: VehicleInsurance) {
+  return compactObject({
+    hasInsurance: true,
+    insurerName: cleanText(insurance.insurerName),
+    premiumAmount: money(insurance.premiumAmount),
+    premiumPeriod: insurance.premiumPeriod,
+    deductibleAmount: money(insurance.deductibleAmount),
+    deductibleNotes: cleanText(insurance.deductibleNotes ?? ""),
+    coverages: cleanText(insurance.coverages),
+    validUntil: cleanText(insurance.validUntil)
   });
 }
 
@@ -146,6 +181,11 @@ function compactObject<T extends Record<string, unknown>>(value: T): Partial<T> 
       return true;
     })
   ) as Partial<T>;
+}
+
+function money(value: number | null | undefined): number | undefined {
+  if (value === null || value === undefined || !Number.isFinite(value)) return undefined;
+  return Math.round(value * 100) / 100;
 }
 
 function cleanText(value: string): string {
