@@ -45,13 +45,19 @@ function garagesForChatContext(dashboard: VehicleDashboard): VehicleGarage[] {
 }
 
 export function sanitizeAutomotiveChatMessages(messages: AutomotiveChatMessage[]): AutomotiveChatMessage[] {
-  return messages
-    .filter((message) => message.role === "user")
-    .slice(-6)
+  const recentMessages = messages
     .map((message) => ({
-      role: "user",
-      content: cleanText(message.content).slice(0, 2000)
-    }));
+      role: message.role,
+      content: cleanChatMessageContent(message.content)
+    }))
+    .filter((message) => message.content.length > 0)
+    .slice(-12);
+
+  while (recentMessages[0]?.role === "assistant") {
+    recentMessages.shift();
+  }
+
+  return recentMessages;
 }
 
 function toGarageContext(garage: VehicleGarage, garageIndex: number) {
@@ -257,6 +263,13 @@ function cleanText(value: string): string {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 600);
+}
+
+function cleanChatMessageContent(value: string): string {
+  return redactSensitiveText(value)
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 2000);
 }
 
 function redactSensitiveText(value: string): string {
