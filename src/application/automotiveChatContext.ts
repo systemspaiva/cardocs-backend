@@ -17,17 +17,31 @@ import {
 } from "../domain/models.js";
 
 export function buildAutomotiveChatContext(dashboard: VehicleDashboard): AutomotiveChatContext {
-  const selectedGarageIndex = Math.max(
-    0,
-    dashboard.garages.findIndex((garage) => garage.id === dashboard.selectedGarageID)
-  );
-  const garages = dashboard.garages.slice(0, 20);
+  const garages = garagesForChatContext(dashboard);
+  const selectedGarageIndex = Math.max(0, garages.findIndex((garage) => garage.id === dashboard.selectedGarageID));
 
   return {
     selectedGarageIndex,
     garages: garages.map(toGarageContext),
     references: garages.flatMap(toReferenceContext).slice(0, 120)
   };
+}
+
+function garagesForChatContext(dashboard: VehicleDashboard): VehicleGarage[] {
+  const selectedGarage = dashboard.garages.find((garage) => garage.id === dashboard.selectedGarageID);
+  if (!selectedGarage) return dashboard.garages.slice(0, 20);
+
+  const firstGarages = dashboard.garages.slice(0, 20);
+  if (firstGarages.some((garage) => garage.id === selectedGarage.id)) {
+    return firstGarages;
+  }
+
+  return [
+    selectedGarage,
+    ...dashboard.garages
+      .filter((garage) => garage.id !== selectedGarage.id)
+      .slice(0, 19)
+  ];
 }
 
 export function sanitizeAutomotiveChatMessages(messages: AutomotiveChatMessage[]): AutomotiveChatMessage[] {
