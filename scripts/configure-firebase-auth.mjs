@@ -3,7 +3,7 @@ import { GoogleAuth } from "google-auth-library";
 
 const projectId = process.env.FIREBASE_PROJECT_ID ?? "cardocs-app";
 const credentialsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
-const bundleId = process.env.CARDOCS_IOS_BUNDLE_ID ?? "com.paivaapps.cardocs";
+const bundleId = process.env.CARDOCS_IOS_BUNDLE_ID ?? "com.paivaapps.tarevisado";
 const shouldApply = process.argv.includes("--apply");
 
 let hasFailure = false;

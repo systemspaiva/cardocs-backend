@@ -201,7 +201,7 @@ export function generateResaleDossier(
   const score = hasHistory ? Math.min(96, Math.max(50, 50 + garage.timeline.length * 8 + documentCount * 10 + (hasInsurance ? 8 : 0))) : 42;
 
   return {
-    title: hasHistory ? "Dossie CarDocs" : "Dossie em preparo",
+    title: hasHistory ? "Dossie Tá Revisado" : "Dossie em preparo",
     summary: hasHistory ?
       "Historico consolidado com manutencoes, documentos e sinais de procedencia." :
       "Importe notas e documentos para transformar este veiculo em um historico pronto para venda.",
@@ -262,7 +262,7 @@ export function generateResaleDossier(
         title: "Confianca para comprador",
         status: hasHistory ? "Pronto" : "Em preparo",
         detail: hasHistory ?
-          "Relatorio publico gerado a partir dos dados salvos no CarDocs." :
+          "Relatorio publico gerado a partir dos dados salvos no Tá Revisado" :
           "O link sera mais forte quando houver documentos validados."
       },
       {

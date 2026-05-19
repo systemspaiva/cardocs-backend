@@ -8,13 +8,13 @@ import { ValidationError } from "../application/errors.js";
 import { SubscriptionTransactionVerifier } from "../application/subscriptions.js";
 import { SubscriptionPlan, UserSubscription } from "../domain/models.js";
 
-const DEFAULT_BUNDLE_ID = "com.paivaapps.cardocs";
-const DEFAULT_APP_APPLE_ID = 6768390243;
+const DEFAULT_BUNDLE_ID = "com.paivaapps.tarevisado";
+const DEFAULT_APP_APPLE_ID = 6771093806;
 const APPLE_ROOT_CA_G3_URL = "https://www.apple.com/certificateauthority/AppleRootCA-G3.cer";
 
 const productPlans = new Map<string, SubscriptionPlan>([
-  ["com.paivaapps.cardocs.premium.monthly", "monthly"],
-  ["com.paivaapps.cardocs.premium.annual", "annual"]
+  ["com.paivaapps.tarevisado.premium.monthly", "monthly"],
+  ["com.paivaapps.tarevisado.premium.annual", "annual"]
 ]);
 
 export class AppStoreSubscriptionVerifier implements SubscriptionTransactionVerifier {

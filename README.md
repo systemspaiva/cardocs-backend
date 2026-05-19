@@ -1,6 +1,6 @@
-# CarDocs Node Backend
+# Tá Revisado Node Backend
 
-Backend Node.js/Express para o app iOS CarDocs, publicado diretamente no Cloud Run. Não usa Firebase Functions nem Firebase Hosting como entrada do backend.
+Backend Node.js/Express para o app iOS Tá Revisado, publicado diretamente no Cloud Run. Não usa Firebase Functions nem Firebase Hosting como entrada do backend.
 
 ## Stack Atual
 

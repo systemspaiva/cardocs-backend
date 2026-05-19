@@ -164,7 +164,7 @@ report("FIRESTORE_PART_REPLACEMENTS_IN_DASHBOARD", repository.includes("collecti
 const iosInfo = read("cardocs/Info.plist", iosDir);
 report("IOS_API_BASE_URL_CLOUD_RUN", iosInfo.includes("https://cardocs-backend-5qq5b33fha-rj.a.run.app") && !/https:\/\/cardocs-app(?:--[a-z0-9-]+)?\.web\.app/.test(iosInfo));
 report("IOS_FIREBASE_AI_CONFIG_REMOVED", !iosInfo.includes("CARDOCS_GEMINI_MODEL") && !iosInfo.includes("CARDOCS_FIREBASE_AI_ENABLED"));
-report("IOS_GOOGLE_CALLBACK_BASE_SCHEME", iosInfo.includes("<string>cardocs</string>"));
+report("IOS_GOOGLE_CALLBACK_BASE_SCHEME", iosInfo.includes("<string>tarevisado</string>"));
 report("IOS_INVOICE_CAPTURE_PERMISSIONS", iosInfo.includes("NSCameraUsageDescription") && iosInfo.includes("NSPhotoLibraryUsageDescription"));
 
 const iosApp = read("cardocs/cardocsApp.swift", iosDir);
@@ -220,7 +220,7 @@ report(
     (appView.includes("PremiumPaywallSheet(viewModel: subscriptionViewModel)") || appView.includes("SubscriptionView(viewModel: subscriptionViewModel)")) &&
     hasSubscriptionAwareTabBar
 );
-report("IOS_SUBSCRIPTION_STOREKIT_PRODUCTS", storeKitSubscriptionClient.includes("com.paivaapps.cardocs.premium.monthly") && storeKitSubscriptionClient.includes("com.paivaapps.cardocs.premium.annual") && iosInfo.includes("CARDOCS_SUBSCRIPTION_MONTHLY_PRODUCT_ID") && iosInfo.includes("CARDOCS_SUBSCRIPTION_ANNUAL_PRODUCT_ID"));
+report("IOS_SUBSCRIPTION_STOREKIT_PRODUCTS", iosInfo.includes("com.paivaapps.tarevisado.premium.monthly") && iosInfo.includes("com.paivaapps.tarevisado.premium.annual") && iosInfo.includes("CARDOCS_SUBSCRIPTION_MONTHLY_PRODUCT_ID") && iosInfo.includes("CARDOCS_SUBSCRIPTION_ANNUAL_PRODUCT_ID") && storeKitSubscriptionClient.includes("requiredInfoDictionaryString"));
 report("IOS_SUBSCRIPTION_PRICE_FROM_STOREKIT_ONLY", storeKitSubscriptionClient.includes("displayPrice: product.displayPrice") && !storeKitSubscriptionClient.includes("fallbackPrice") && !read("cardocs/Domain/SubscriptionModels.swift", iosDir).includes("R$"));
 report("IOS_SUBSCRIPTION_PURCHASES_BOUND_TO_ACCOUNT", storeKitSubscriptionClient.includes(".appAccountToken(appAccountToken)") && subscriptionViewModel.includes("updateAppAccountToken") && appView.includes("subscriptionViewModel.updateAppAccountToken(session?.id)"));
 report("IOS_SUBSCRIPTION_FREE_DAYS_BEFORE_STOREKIT", subscriptionViewModel.includes("backendStatus.isOnFreeDays") && subscriptionViewModel.indexOf("backendStatus.isOnFreeDays") < subscriptionViewModel.indexOf("storeKit.currentEntitlement()"));

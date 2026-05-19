@@ -532,7 +532,7 @@ function renderPublicDossierPage(dossier: ResaleDossier): string {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>${escapeHtml(dossier.title)} | CarDocs</title>
+  <title>${escapeHtml(dossier.title)} | Tá Revisado</title>
   <style>
     :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #172026; background: #f5f7f8; }
     body { margin: 0; }
@@ -552,7 +552,7 @@ function renderPublicDossierPage(dossier: ResaleDossier): string {
   <main>
     <h1>${escapeHtml(dossier.title)}</h1>
     <p>${escapeHtml(dossier.summary)}</p>
-    <div class="score"><strong>${escapeHtml(String(dossier.score))}</strong><span>score CarDocs</span></div>
+    <div class="score"><strong>${escapeHtml(String(dossier.score))}</strong><span>score Tá Revisado</span></div>
     <section><h2>Destaques</h2><ul>${highlights}</ul></section>
     <section><h2>Checklist</h2><ul>${checks}</ul></section>
     <section><h2>Relatorio</h2>${sections}</section>
