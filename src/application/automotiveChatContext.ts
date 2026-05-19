@@ -1,6 +1,7 @@
 import {
   AutomotiveChatContext,
-  AutomotiveChatMessage
+  AutomotiveChatMessage,
+  AutomotiveChatReference
 } from "./cardocsIaGateway.js";
 import {
   MaintenanceRecord,
@@ -20,10 +21,12 @@ export function buildAutomotiveChatContext(dashboard: VehicleDashboard): Automot
     0,
     dashboard.garages.findIndex((garage) => garage.id === dashboard.selectedGarageID)
   );
+  const garages = dashboard.garages.slice(0, 20);
 
   return {
     selectedGarageIndex,
-    garages: dashboard.garages.slice(0, 20).map(toGarageContext)
+    garages: garages.map(toGarageContext),
+    references: garages.flatMap(toReferenceContext).slice(0, 120)
   };
 }
 
@@ -37,16 +40,48 @@ export function sanitizeAutomotiveChatMessages(messages: AutomotiveChatMessage[]
     }));
 }
 
-function toGarageContext(garage: VehicleGarage) {
+function toGarageContext(garage: VehicleGarage, garageIndex: number) {
   return compactObject({
     vehicle: toVehicleContext(garage.vehicle),
     investment: toInvestmentContext(garage.investment),
-    maintenanceHistory: garage.timeline.slice(0, 80).map(toMaintenanceContext),
+    maintenanceHistory: garage.timeline.slice(0, 80).map((record, index) => toMaintenanceContext(record, referenceID(garageIndex, "service", index))),
     partsHealth: garage.healthItems.slice(0, 80).map(toPartHealthContext),
-    partReplacements: garage.partReplacements.slice(0, 80).map(toPartReplacementContext),
-    documents: garage.vaultDocuments.slice(0, 80).map(toDocumentContext),
+    partReplacements: garage.partReplacements.slice(0, 80).map((record, index) => toPartReplacementContext(record, referenceID(garageIndex, "part", index))),
+    documents: garage.vaultDocuments.slice(0, 80).map((document, index) => toDocumentContext(document, referenceID(garageIndex, "document", index))),
     insurance: garage.insurance ? toInsuranceContext(garage.insurance) : undefined
   });
+}
+
+function toReferenceContext(garage: VehicleGarage, garageIndex: number): AutomotiveChatReference[] {
+  return [
+    ...garage.timeline.slice(0, 80).map((record, index) => compactObject({
+      type: "maintenance_record" as const,
+      referenceID: referenceID(garageIndex, "service", index),
+      itemID: record.id,
+      title: displayRecordTitle(record),
+      subtitle: cleanText(record.purchaseSummary ?? record.serviceTitle ?? record.subtitle),
+      date: cleanText(record.date),
+      amount: money(record.amount)
+    })),
+    ...garage.vaultDocuments.slice(0, 80).map((document, index) => compactObject({
+      type: "vault_document" as const,
+      referenceID: referenceID(garageIndex, "document", index),
+      itemID: document.id,
+      title: displayDocumentTitle(document),
+      subtitle: cleanText(document.purchaseSummary ?? document.serviceTitle ?? document.documentType ?? document.status),
+      date: cleanText(document.date),
+      amount: money(document.amount)
+    })),
+    ...garage.partReplacements.slice(0, 80).map((record, index) => compactObject({
+      type: "part_replacement" as const,
+      referenceID: referenceID(garageIndex, "part", index),
+      itemID: record.maintenanceRecordID,
+      title: cleanText(record.partName),
+      subtitle: cleanText(record.serviceTitle),
+      date: cleanText(record.serviceDate),
+      amount: money(record.amount)
+    }))
+  ] as AutomotiveChatReference[];
 }
 
 function toVehicleContext(vehicle: VehicleProfile) {
@@ -88,8 +123,9 @@ function toInvestmentContext(investment: InvestmentSummary) {
   });
 }
 
-function toMaintenanceContext(record: MaintenanceRecord) {
+function toMaintenanceContext(record: MaintenanceRecord, referenceIDValue: string) {
   return compactObject({
+    referenceID: referenceIDValue,
     title: cleanText(record.title),
     subtitle: cleanText(record.subtitle),
     date: cleanText(record.date),
@@ -115,8 +151,9 @@ function toPartHealthContext(item: PartHealth) {
   });
 }
 
-function toPartReplacementContext(record: PartReplacementRecord) {
+function toPartReplacementContext(record: PartReplacementRecord, referenceIDValue: string) {
   return compactObject({
+    referenceID: referenceIDValue,
     partName: cleanText(record.partName),
     brandName: cleanText(record.brandName ?? ""),
     serviceTitle: cleanText(record.serviceTitle),
@@ -130,8 +167,9 @@ function toPartReplacementContext(record: PartReplacementRecord) {
   });
 }
 
-function toDocumentContext(document: VaultDocument) {
+function toDocumentContext(document: VaultDocument, referenceIDValue: string) {
   return compactObject({
+    referenceID: referenceIDValue,
     title: cleanText(document.title),
     date: cleanText(document.date),
     amount: money(document.amount),
@@ -170,6 +208,18 @@ function toInsuranceContext(insurance: VehicleInsurance) {
     coverages: cleanText(insurance.coverages),
     validUntil: cleanText(insurance.validUntil)
   });
+}
+
+function referenceID(garageIndex: number, kind: "service" | "document" | "part", itemIndex: number): string {
+  return `g${garageIndex + 1}_${kind}_${itemIndex + 1}`;
+}
+
+function displayRecordTitle(record: MaintenanceRecord): string {
+  return cleanText(record.supplierName ?? record.title);
+}
+
+function displayDocumentTitle(document: VaultDocument): string {
+  return cleanText(document.supplierName ?? document.title);
 }
 
 function compactObject<T extends Record<string, unknown>>(value: T): Partial<T> {

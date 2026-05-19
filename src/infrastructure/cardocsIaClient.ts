@@ -138,6 +138,14 @@ export class CardocsIaClient implements CardocsIaGateway {
           continue;
         }
 
+        if (event.event === "reference") {
+          const payload = parseStreamPayload<AutomotiveChatStreamEvent>(event.data);
+          if (payload.type === "reference") {
+            yield payload;
+          }
+          continue;
+        }
+
         if (event.event === "done") {
           const payload = parseStreamPayload<{ type?: string; scope?: "automotive" | "out_of_scope" }>(event.data);
           receivedDone = true;

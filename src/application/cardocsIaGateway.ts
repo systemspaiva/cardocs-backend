@@ -25,9 +25,22 @@ export interface AutomotiveChatMessage {
   content: string;
 }
 
+export type AutomotiveChatReferenceType = "maintenance_record" | "vault_document" | "part_replacement";
+
+export interface AutomotiveChatReference {
+  type: AutomotiveChatReferenceType;
+  referenceID: string;
+  itemID: string;
+  title: string;
+  subtitle?: string;
+  date?: string;
+  amount?: number;
+}
+
 export interface AutomotiveChatContext {
   selectedGarageIndex?: number;
   garages: unknown[];
+  references?: AutomotiveChatReference[];
 }
 
 export interface AutomotiveChatRequest {
@@ -42,6 +55,7 @@ export interface AutomotiveChatResponse {
 
 export type AutomotiveChatStreamEvent =
   | { type: "delta"; text: string }
+  | { type: "reference"; reference: AutomotiveChatReference }
   | { type: "done"; scope: AutomotiveChatScope };
 
 export interface AutomotiveChatStreamOptions {
