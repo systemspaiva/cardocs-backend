@@ -313,7 +313,7 @@ const invoicePartLifeRecommendationSchema = z.object({
   lifeKm: z.coerce.number().int().positive().max(500_000).nullable().optional(),
   lifeMonths: z.coerce.number().int().positive().max(240).nullable().optional(),
   confidence: confidenceSchema,
-  rationale: z.string().trim().min(1).max(220)
+  rationale: z.string().trim().min(1)
 }).superRefine((input, context) => {
   if (!input.lifeKm && !input.lifeMonths) {
     context.addIssue({
