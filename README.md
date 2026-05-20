@@ -120,7 +120,7 @@ Integração com o backend privado de IA:
 
 ```bash
 export CARDOCS_IA_BASE_URL="https://cardocs-ia-....a.run.app"
-export CARDOCS_IA_TIMEOUT_MS="30000"
+export CARDOCS_IA_TIMEOUT_MS="120000"
 ```
 
 O `cardocs-backend` não carrega provedor de IA localmente. Em Cloud Run, a chamada ao `cardocs-ia` usa identidade de serviço/IAM por ID token. Não configure chave DeepSeek neste backend; ela pertence exclusivamente ao ambiente do `cardocs-ia`.

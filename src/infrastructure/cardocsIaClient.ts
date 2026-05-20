@@ -284,5 +284,5 @@ function toAppError(statusCode: number, payload: ErrorPayload | undefined): AppE
 
 function parseTimeout(value: string | undefined): number {
   const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed >= 1000 && parsed <= 60000 ? parsed : 30000;
+  return Number.isFinite(parsed) && parsed >= 1000 && parsed <= 120000 ? parsed : 120000;
 }
