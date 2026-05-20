@@ -64,7 +64,7 @@ Authorization: Bearer <Firebase ID token>
 
 `vehicles/image` consulta a CarsXE pelo backend quando `CARSXE_API_KEY` está configurada e retorna a melhor imagem real disponível para marca, modelo e ano. Quando a CarsXE não encontra imagens, a rota retorna `404` sem persistir dados fictícios no Firestore.
 
-O app iOS prepara imagem/PDF e envia o documento para `/v1/invoices/analyze`. O backend valida Firebase Auth e assinatura, então delega a leitura para o serviço privado `cardocs-ia`, sem embutir Gemini API key no bundle.
+O app iOS prepara imagem/PDF e envia o documento para `/v1/invoices/analyze`. O backend valida Firebase Auth e assinatura, então delega a leitura para o serviço privado `cardocs-ia`, sem embutir chave de IA no bundle.
 
 `invoices/analyze` continua disponível como rota pública de compatibilidade para o app iOS. A execução de IA, prompts, schemas de extração e classificação de `vehicleService`, `partOrProduct` ou `unknown` ficam no `cardocs-ia`.
 
@@ -123,7 +123,7 @@ export CARDOCS_IA_BASE_URL="https://cardocs-ia-....a.run.app"
 export CARDOCS_IA_TIMEOUT_MS="30000"
 ```
 
-O `cardocs-backend` não carrega Genkit/Gemini localmente. Em Cloud Run, a chamada ao `cardocs-ia` usa identidade de serviço/IAM por ID token. Não configure chave Gemini neste backend; ela pertence exclusivamente ao ambiente do `cardocs-ia`.
+O `cardocs-backend` não carrega provedor de IA localmente. Em Cloud Run, a chamada ao `cardocs-ia` usa identidade de serviço/IAM por ID token. Não configure chave DeepSeek neste backend; ela pertence exclusivamente ao ambiente do `cardocs-ia`.
 
 Os scripts de deploy bloqueiam execução fora do alvo `develop` e fora da branch `develop`. Enquanto o repositório local estiver em `main`, eles não publicam.
 
