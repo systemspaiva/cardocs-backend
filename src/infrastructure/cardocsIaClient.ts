@@ -8,6 +8,7 @@ import {
   PartReplacementRecommendation,
   PartReplacementRecommendationRequest
 } from "../application/cardocsIaGateway.js";
+import { buildInvoiceScanDraft, InvoiceExtraction } from "../application/invoiceDraftBuilder.js";
 import {
   InvoiceDocumentInput,
   InvoiceScanDraft
@@ -37,18 +38,27 @@ export class CardocsIaClient implements CardocsIaGateway {
   }
 
   async analyzeInvoice(input: InvoiceDocumentInput): Promise<InvoiceScanDraft> {
-    return this.post("/internal/v1/invoices/analyze", input);
+    if (!input.document) {
+      throw new AppError("Documento da nota fiscal obrigatorio.", 400, "validation_error");
+    }
+    const extraction = await this.post<InvoiceExtraction>("/internal/v1/invoices/extract", {
+      source: input.source,
+      displayName: input.displayName,
+      pageCount: input.pageCount,
+      document: input.document
+    });
+    return buildInvoiceScanDraft(extraction, input);
   }
 
   async recommendPartReplacement(input: PartReplacementRecommendationRequest): Promise<PartReplacementRecommendation> {
-    return this.post("/internal/v1/part-replacements/recommendation", input);
+    return this.post("/internal/v1/parts/recommendation", input);
   }
 
   async *streamAutomotiveChat(
     input: AutomotiveChatRequest,
     options: AutomotiveChatStreamOptions = {}
   ): AsyncIterable<AutomotiveChatStreamEvent> {
-    for await (const event of this.postStream("/internal/v1/automotive-chat", input, options)) {
+    for await (const event of this.postStream("/internal/v1/chat/stream", input, options)) {
       yield event;
     }
   }

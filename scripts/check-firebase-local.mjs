@@ -118,13 +118,14 @@ report(
     repository.includes("removeVehiclePhoto") &&
     repository.includes("reorderVehiclePhotos")
 );
-report("API_INVOICE_ANALYSIS_DELEGATES_TO_CARDOCS_IA", routes.includes("requireCardocsIa(cardocsIa).analyzeInvoice(body)") && cardocsIaClient.includes("/internal/v1/invoices/analyze"));
+report("API_INVOICE_ANALYSIS_DELEGATES_TO_CARDOCS_IA", routes.includes("requireCardocsIa(cardocsIa).analyzeInvoice(body)") && cardocsIaClient.includes("/internal/v1/invoices/extract"));
 report(
   "API_INVOICE_CARDOCS_IA_PRIVATE_CLIENT",
   cardocsIaClient.includes("getIdTokenClient(this.baseURL)") &&
     cardocsIaClient.includes("CARDOCS_IA_BASE_URL") &&
-    cardocsIaClient.includes("/internal/v1/invoices/analyze") &&
-    cardocsIaClient.includes("/internal/v1/part-replacements/recommendation")
+    cardocsIaClient.includes("/internal/v1/invoices/extract") &&
+    cardocsIaClient.includes("/internal/v1/parts/recommendation") &&
+    cardocsIaClient.includes("/internal/v1/chat/stream")
 );
 report("API_BACKEND_DOES_NOT_LOAD_LOCAL_GEMINI", !read("src/index.ts").includes("GenkitInvoiceExtractionProvider") && !read("src/index.ts").includes("GeminiPartRecommendationProvider"));
 report("API_INVOICE_AI_RETURNS_UNKNOWN_WHEN_AMBIGUOUS", domainModels.includes("\"unknown\"") && invoiceUseCase.includes("draft.expenseKind === \"unknown\""));
