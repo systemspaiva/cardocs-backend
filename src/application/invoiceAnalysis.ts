@@ -238,7 +238,8 @@ function buildDraft(
       ...(mileage > 0 ? [extractedField(draftId, "Quilometragem", `${mileage} km`, Math.max(45, confidence - 8))] : []),
       extractedField(draftId, "Produtos/servicos", `${lineItems.length} item(ns)`, Math.max(45, confidence - 5))
     ],
-    healthImpacts: healthImpactsForCategory(draftId, category, serviceTitle)
+    healthImpacts: healthImpactsForCategory(draftId, category, serviceTitle),
+    partLifeRecommendations: []
   };
 }
 

@@ -3,6 +3,7 @@ import { FieldValue, Firestore, Timestamp } from "firebase-admin/firestore";
 import {
   AutomationResult,
   InvoiceLineItem,
+  InvoicePartLifeEntry,
   InvestmentSummary,
   MaintenanceRecord,
   MaintenanceRecordUpdate,
@@ -37,6 +38,11 @@ import {
 import { NotFoundError, ValidationError } from "../application/errors.js";
 
 const maxVehiclePhotos = 12;
+
+type InvoicePartLifePersistenceEntry = InvoicePartLifeEntry & {
+  serviceDate: string;
+  mileageAtService: number;
+};
 
 export class FirebaseGarageRepository {
   constructor(private readonly db: Firestore) {}
@@ -240,21 +246,29 @@ export class FirebaseGarageRepository {
     await this.resolveVehicleRef(ownerId, vehicleId);
   }
 
-  async saveAutomationResult(ownerId: string, vehicleId: string, result: AutomationResult): Promise<AutomationResult> {
+  async saveAutomationResult(
+    ownerId: string,
+    vehicleId: string,
+    result: AutomationResult,
+    partLifeEntries: InvoicePartLifePersistenceEntry[] = []
+  ): Promise<AutomationResult> {
     const vehicleRef = await this.resolveVehicleRef(ownerId, vehicleId);
     const timelineRef = vehicleRef.collection("timeline").doc(result.record.id);
     const documentsRef = vehicleRef.collection("vaultDocuments").doc(result.document.id);
+    const partReplacements = invoicePartLifeEntriesToReplacements(ownerId, vehicleRef, result.record.id, partLifeEntries);
 
     await this.db.runTransaction(async (transaction) => {
-      const [vehicleDoc, recordDoc, documentDoc] = await Promise.all([
+      const [vehicleDoc, recordDoc, documentDoc, ...replacementDocs] = await Promise.all([
         transaction.get(vehicleRef),
         transaction.get(timelineRef),
-        transaction.get(documentsRef)
+        transaction.get(documentsRef),
+        ...partReplacements.map((replacement) => transaction.get(replacement.ref))
       ]);
       if (!vehicleDoc.exists) {
         throw new NotFoundError("Veiculo nao encontrado para salvar documento.");
       }
 
+      const currentVehicle = toVehicleProfile(vehicleDoc.data()?.vehicle, vehicleRef.id, { idOverride: vehicleRef.id });
       const currentInvestment = toInvestmentSummary(vehicleDoc.data()?.investment);
       const shouldApplyInvestment = !recordDoc.exists && !documentDoc.exists;
       const nextInvestment: InvestmentSummary = {
@@ -262,17 +276,24 @@ export class FirebaseGarageRepository {
         maintenance: roundMoney(currentInvestment.maintenance + (shouldApplyInvestment ? safeMoney(result.investmentDelta.maintenance) : 0)),
         documentsAndTaxes: roundMoney(currentInvestment.documentsAndTaxes + (shouldApplyInvestment ? safeMoney(result.investmentDelta.documentsAndTaxes) : 0))
       };
+      const maxReplacementMileage = Math.max(0, ...partReplacements.map((entry) => entry.value.mileageAtService));
+      const vehiclePatch = maxReplacementMileage > currentVehicle.mileage
+        ? {
+            vehicle: { ...currentVehicle, mileage: maxReplacementMileage },
+            investment: nextInvestment,
+            updatedAt: FieldValue.serverTimestamp()
+          }
+        : {
+            investment: nextInvestment,
+            updatedAt: FieldValue.serverTimestamp()
+          };
 
       transaction.set(timelineRef, withTimestamps(result.record, recordDoc.exists), { merge: true });
       transaction.set(documentsRef, withTimestamps(result.document, documentDoc.exists), { merge: true });
-      transaction.set(
-        vehicleRef,
-        {
-          investment: nextInvestment,
-          updatedAt: FieldValue.serverTimestamp()
-        },
-        { merge: true }
-      );
+      partReplacements.forEach((replacement, index) => {
+        transaction.set(replacement.ref, withTimestamps(replacement.value, replacementDocs[index]?.exists ?? false), { merge: true });
+      });
+      transaction.set(vehicleRef, vehiclePatch, { merge: true });
     });
 
     return result;
@@ -1190,12 +1211,65 @@ function cleanLabel(value: unknown, fallback: string): string {
   return cleaned || fallback;
 }
 
+function invoicePartLifeEntriesToReplacements(
+  ownerId: string,
+  vehicleRef: FirebaseFirestore.DocumentReference,
+  maintenanceRecordId: string,
+  entries: InvoicePartLifePersistenceEntry[]
+): Array<{ ref: FirebaseFirestore.DocumentReference; value: PartReplacementRecord }> {
+  const uniqueEntries = new Map<string, InvoicePartLifePersistenceEntry & { partName: string }>();
+
+  for (const entry of entries) {
+    const partName = partNameFromServiceLabel(entry.partName);
+    const key = partIdentityKey(partName);
+    if (!key || uniqueEntries.has(key)) continue;
+    if (!entry.lifeKm && !entry.lifeMonths) continue;
+    uniqueEntries.set(key, { ...entry, partName });
+  }
+
+  return Array.from(uniqueEntries.entries()).map(([key, entry]) => {
+    const replacementId = deterministicUuid(
+      "invoice-part-replacement",
+      `${ownerId}:${vehicleRef.id}:${maintenanceRecordId}:${key}`.toLowerCase()
+    );
+    const serviceTitle = `Troca de ${entry.partName}`;
+    const value: PartReplacementRecord = {
+      id: replacementId,
+      partName: entry.partName,
+      brandName: null,
+      serviceTitle,
+      iconName: iconNameForPartName(entry.partName),
+      serviceDate: entry.serviceDate,
+      amount: 0,
+      mileageAtService: Math.max(0, Math.trunc(entry.mileageAtService)),
+      lifeKm: entry.lifeKm ?? null,
+      lifeMonths: entry.lifeMonths ?? null,
+      scheduledRevisionMileage: null,
+      scheduledRevisionWorkshopKind: null,
+      maintenanceRecordID: maintenanceRecordId
+    };
+
+    return {
+      ref: vehicleRef.collection("partReplacements").doc(replacementId),
+      value
+    };
+  });
+}
+
 function partNameFromServiceLabel(value: unknown): string {
   const cleaned = cleanLabel(value, "Peca");
   const partName = cleaned
     .replace(/^(troca|substituicao|revisao|servico|manutencao)\s+(de|do|da|dos|das)?\s*/i, "")
     .trim();
   return partName || cleaned;
+}
+
+function partIdentityKey(value: string): string {
+  return value.normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
 }
 
 function maintenancePlanSummary(lifeKm: number | null, lifeMonths: number | null): string {

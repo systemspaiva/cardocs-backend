@@ -303,6 +303,22 @@ export interface InvoiceHealthImpact {
   detail: string;
 }
 
+export interface InvoicePartLifeRecommendation {
+  id: string;
+  partName: string;
+  lifeKm?: number | null;
+  lifeMonths?: number | null;
+  confidence: number;
+  rationale: string;
+}
+
+export interface InvoicePartLifeEntry {
+  partName: string;
+  lifeKm?: number | null;
+  lifeMonths?: number | null;
+  mileageAtService: number;
+}
+
 export interface InvoiceScanDraft {
   id: string;
   source: InvoiceSource;
@@ -318,6 +334,7 @@ export interface InvoiceScanDraft {
   lineItems: InvoiceLineItem[];
   extractedFields: InvoiceExtractedField[];
   healthImpacts: InvoiceHealthImpact[];
+  partLifeRecommendations: InvoicePartLifeRecommendation[];
 }
 
 export interface InvestmentDelta {

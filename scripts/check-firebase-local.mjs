@@ -137,7 +137,7 @@ report("API_SUBSCRIPTION_APP_STORE_JWS_VERIFICATION", appStoreVerifier.includes(
 report("API_SUBSCRIPTION_APP_ACCOUNT_TOKEN_BOUND", routes.includes("appAccountTokenForOwnerId(ownerId)") && appStoreVerifier.includes("transaction.appAccountToken") && appStoreVerifier.includes("expectedAppAccountToken"));
 report("API_SUBSCRIPTION_FREE_DAYS_PRIORITY", read("src/infrastructure/firebaseUserRepository.ts").includes("freeDaysUntil") && read("src/infrastructure/firebaseUserRepository.ts").indexOf("reason: \"freeDays\"") < read("src/infrastructure/firebaseUserRepository.ts").indexOf("reason: \"subscription\""));
 report("API_INVOICE_SCAN_REQUIRES_ACCESS", routes.includes("ensureInvoiceScanAccess(userRepository, requireOwnerId(request))") && routes.includes("body.draft.source !== \"manualEntry\" || body.sourceDocument?.document"));
-report("API_INVOICE_SAVE_PERSISTS_AUTOMATION_RESULT", routes.includes("saveAutomationResult(requireOwnerId(request), body.vehicleID, result)"));
+report("API_INVOICE_SAVE_PERSISTS_AUTOMATION_RESULT", routes.includes("saveAutomationResult(requireOwnerId(request), body.vehicleID, result"));
 report("API_VEHICLE_TRANSFER_REQUEST_ROUTE", routes.includes("router.post(\"/v1/vehicle-transfers\"") && routes.includes("getAuth().getUserByEmail") && schemas.includes("vehicleTransferRequestSchema"));
 report("API_VEHICLE_TRANSFER_RESPOND_ROUTE", routes.includes("router.post(\"/v1/vehicle-transfers/respond\"") && schemas.includes("vehicleTransferResponseSchema"));
 report("API_PUSH_DEVICE_TOKEN_ROUTES", routes.includes("router.post(\"/v1/device-tokens\"") && routes.includes("router.post(\"/v1/device-tokens/remove\"") && schemas.includes("pushDeviceTokenRegistrationSchema"));
@@ -171,7 +171,7 @@ const iosApp = read("cardocs/cardocsApp.swift", iosDir);
 report("IOS_FIREBASE_APP_CONFIGURE", iosApp.includes("FirebaseApp.configure()"));
 report("IOS_FIREBASE_APP_CHECK_CONFIGURE", iosApp.includes("AppCheck.setAppCheckProviderFactory"));
 report("IOS_GOOGLE_OPEN_URL_HANDLER", iosApp.includes("GIDSignIn.sharedInstance.handle(url)"));
-report("IOS_PUSH_DELEGATE_CONFIGURED", iosApp.includes("@UIApplicationDelegateAdaptor(CarDocsAppDelegate.self)") && iosApp.includes("PushNotificationRegistrationService.shared.configure()"));
+report("IOS_PUSH_DELEGATE_CONFIGURED", iosApp.includes("@UIApplicationDelegateAdaptor(CarDocsAppDelegate.self)") && (iosApp.includes("PushNotificationRegistrationService.shared.configure()") || iosApp.includes("pushNotificationsClient.configure()")));
 
 const remoteAuth = read("cardocs/Data/RemoteAuthRepository.swift", iosDir);
 report("IOS_EMAIL_PASSWORD_AUTH", remoteAuth.includes("signIn(") && remoteAuth.includes("createUser("));

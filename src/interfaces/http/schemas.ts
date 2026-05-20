@@ -307,6 +307,38 @@ export const invoiceLineItemSchema = z.object({
   totalAmount: positiveMoneyNumberSchema
 });
 
+const invoicePartLifeRecommendationSchema = z.object({
+  id: z.string().min(1),
+  partName: z.string().trim().min(2).max(80),
+  lifeKm: z.coerce.number().int().positive().max(500_000).nullable().optional(),
+  lifeMonths: z.coerce.number().int().positive().max(240).nullable().optional(),
+  confidence: confidenceSchema,
+  rationale: z.string().trim().min(1).max(220)
+}).superRefine((input, context) => {
+  if (!input.lifeKm && !input.lifeMonths) {
+    context.addIssue({
+      code: "custom",
+      path: ["lifeKm"],
+      message: "Informe a vida util em km ou meses."
+    });
+  }
+});
+
+const invoicePartLifeEntrySchema = z.object({
+  partName: z.string().trim().min(2).max(80),
+  lifeKm: z.coerce.number().int().positive().max(500_000).nullable().optional(),
+  lifeMonths: z.coerce.number().int().positive().max(240).nullable().optional(),
+  mileageAtService: z.coerce.number().int().positive().max(2_000_000)
+}).superRefine((input, context) => {
+  if (!input.lifeKm && !input.lifeMonths) {
+    context.addIssue({
+      code: "custom",
+      path: ["lifeKm"],
+      message: "Informe a vida util em km ou meses."
+    });
+  }
+});
+
 export const invoiceDraftSchema = z.object({
   id: z.string().min(1),
   source: invoiceSourceSchema,
@@ -331,13 +363,15 @@ export const invoiceDraftSchema = z.object({
     iconName: z.string(),
     title: z.string(),
     detail: z.string()
-  }))
+  })),
+  partLifeRecommendations: z.array(invoicePartLifeRecommendationSchema).max(12).default([])
 });
 
 export const saveInvoiceSchema = z.object({
   vehicleID: vehicleIDSchema,
   draft: invoiceDraftSchema,
-  sourceDocument: requiredDocumentInputSchema.nullable().optional()
+  sourceDocument: requiredDocumentInputSchema.nullable().optional(),
+  partLifeEntries: z.array(invoicePartLifeEntrySchema).max(12).default([])
 });
 
 export const createPartReplacementSchema = z.object({

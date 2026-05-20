@@ -12,7 +12,13 @@ import {
   toManualVehicleProfile,
   toVehicleProfile
 } from "../../domain/factories.js";
-import { InvoiceDocumentInput, ResaleDossier, VaultDocumentKind } from "../../domain/models.js";
+import {
+  InvoiceDocumentInput,
+  InvoicePartLifeEntry,
+  InvoiceScanDraft,
+  ResaleDossier,
+  VaultDocumentKind
+} from "../../domain/models.js";
 import { VehicleImageLookupUseCase, VehicleImageProvider } from "../../application/vehicleImageLookup.js";
 import { InvoiceAnalysisUseCase } from "../../application/invoiceAnalysis.js";
 import { VehiclePlateDataProvider, VehiclePlateLookupUseCase } from "../../application/vehiclePlateLookup.js";
@@ -228,7 +234,10 @@ export function createRouter(
       result.record.attachment = attachment;
       result.document.attachment = attachment;
     }
-    response.status(201).json(await repository.saveAutomationResult(requireOwnerId(request), body.vehicleID, result));
+    const partLifeEntries = body.draft.expenseKind === "vehicleService"
+      ? invoicePartLifeEntriesForDraft(body.draft, body.partLifeEntries)
+      : [];
+    response.status(201).json(await repository.saveAutomationResult(requireOwnerId(request), body.vehicleID, result, partLifeEntries));
   }));
 
   router.post("/v1/part-replacements", asyncHandler(async (request: AuthenticatedRequest, response) => {
@@ -376,6 +385,31 @@ export function createRouter(
   }));
 
   return router;
+}
+
+function invoicePartLifeEntriesForDraft(draft: InvoiceScanDraft, entries: InvoicePartLifeEntry[]) {
+  if (entries.length === 0) return [];
+
+  const allowedPartKeys = new Set(draft.partLifeRecommendations.map((item) => partLifeEntryKey(item.partName)));
+  const unexpectedEntry = entries.find((entry) => !allowedPartKeys.has(partLifeEntryKey(entry.partName)));
+  if (unexpectedEntry) {
+    throw new ValidationError("Entrada de vida util nao corresponde aos itens sugeridos para essa nota.");
+  }
+
+  return entries.map((entry) => ({
+    ...entry,
+    serviceDate: draft.date,
+    mileageAtService: entry.mileageAtService
+  }));
+}
+
+function partLifeEntryKey(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
 }
 
 async function findUserByEmail(email: string): Promise<UserRecord> {
