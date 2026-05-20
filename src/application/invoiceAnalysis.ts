@@ -101,6 +101,16 @@ export class InvoiceAnalysisUseCase {
     if (draft.expenseKind === "unknown") {
       throw new ValidationError("Selecione se a nota e de servico ou de peca/produto antes de salvar.");
     }
+    if (
+      draft.requiresUserInput
+      || draft.missingFields.length > 0
+      || !draft.supplierName.trim()
+      || !draft.serviceTitle.trim()
+      || !draft.date.trim()
+      || draft.amount <= 0
+    ) {
+      throw new ValidationError("Complete os dados pendentes da nota antes de salvar.");
+    }
 
     const isDocumentOrTax = /document|imposto|ipva|licenciamento|taxa/i.test(draft.category);
     const maintenance = isDocumentOrTax ? 0 : draft.amount;
@@ -239,7 +249,9 @@ function buildDraft(
       extractedField(draftId, "Produtos/servicos", `${lineItems.length} item(ns)`, Math.max(45, confidence - 5))
     ],
     healthImpacts: healthImpactsForCategory(draftId, category, serviceTitle),
-    partLifeRecommendations: []
+    partLifeRecommendations: [],
+    requiresUserInput: false,
+    missingFields: []
   };
 }
 

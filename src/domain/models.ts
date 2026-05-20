@@ -319,6 +319,13 @@ export interface InvoicePartLifeEntry {
   mileageAtService: number;
 }
 
+export type InvoiceDraftMissingField =
+  | "supplierName"
+  | "serviceTitle"
+  | "date"
+  | "amount"
+  | "expenseKind";
+
 export interface InvoiceScanDraft {
   id: string;
   source: InvoiceSource;
@@ -335,6 +342,8 @@ export interface InvoiceScanDraft {
   extractedFields: InvoiceExtractedField[];
   healthImpacts: InvoiceHealthImpact[];
   partLifeRecommendations: InvoicePartLifeRecommendation[];
+  requiresUserInput: boolean;
+  missingFields: InvoiceDraftMissingField[];
 }
 
 export interface InvestmentDelta {

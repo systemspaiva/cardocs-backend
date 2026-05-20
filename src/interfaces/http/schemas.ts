@@ -12,7 +12,14 @@ const optionalEditableTextSchema = z.string().trim().min(1).max(160).optional();
 const optionalNullableLongTextSchema = z.string().trim().max(2000).nullable().optional();
 const documentSourceSchema = z.enum(["cameraScan", "fileImport", "photoLibrary"]);
 const invoiceSourceSchema = z.enum(["cameraScan", "fileImport", "photoLibrary", "manualEntry"]);
-const invoiceExpenseKindSchema = z.enum(["vehicleService", "partOrProduct"]);
+const invoiceExpenseKindSchema = z.enum(["vehicleService", "partOrProduct", "unknown"]);
+const invoiceDraftMissingFieldSchema = z.enum([
+  "supplierName",
+  "serviceTitle",
+  "date",
+  "amount",
+  "expenseKind"
+]);
 const pushDeviceTokenSchema = z.string().trim().min(16).max(4096);
 const legalDocumentVersionSchema = z.string().trim().min(1).max(80);
 const maintenanceDateSchema = z
@@ -342,13 +349,13 @@ const invoicePartLifeEntrySchema = z.object({
 export const invoiceDraftSchema = z.object({
   id: z.string().min(1),
   source: invoiceSourceSchema,
-  supplierName: z.string().min(1),
-  serviceTitle: z.string().min(1),
+  supplierName: z.string().max(160),
+  serviceTitle: z.string().max(160),
   category: z.string().min(1),
   expenseKind: invoiceExpenseKindSchema,
-  date: z.string().min(1),
+  date: z.string().max(20),
   time: z.string().nullable().optional(),
-  amount: positiveMoneyNumberSchema,
+  amount: moneyNumberSchema.min(0),
   mileage: nonNegativeIntegerSchema,
   confidence: confidenceSchema,
   lineItems: z.array(invoiceLineItemSchema).default([]),
@@ -364,7 +371,9 @@ export const invoiceDraftSchema = z.object({
     title: z.string(),
     detail: z.string()
   })),
-  partLifeRecommendations: z.array(invoicePartLifeRecommendationSchema).max(12).default([])
+  partLifeRecommendations: z.array(invoicePartLifeRecommendationSchema).max(12).default([]),
+  requiresUserInput: z.boolean().default(false),
+  missingFields: z.array(invoiceDraftMissingFieldSchema).default([])
 });
 
 export const saveInvoiceSchema = z.object({
@@ -372,6 +381,23 @@ export const saveInvoiceSchema = z.object({
   draft: invoiceDraftSchema,
   sourceDocument: requiredDocumentInputSchema.nullable().optional(),
   partLifeEntries: z.array(invoicePartLifeEntrySchema).max(12).default([])
+}).superRefine((input, context) => {
+  const draft = input.draft;
+  if (
+    draft.requiresUserInput
+    || draft.missingFields.length > 0
+    || !draft.supplierName.trim()
+    || !draft.serviceTitle.trim()
+    || !draft.date.trim()
+    || draft.amount <= 0
+    || draft.expenseKind === "unknown"
+  ) {
+    context.addIssue({
+      code: "custom",
+      path: ["draft"],
+      message: "Complete os dados pendentes da nota antes de salvar."
+    });
+  }
 });
 
 export const createPartReplacementSchema = z.object({
