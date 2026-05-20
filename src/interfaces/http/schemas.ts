@@ -228,7 +228,9 @@ const invoiceDocumentContentSchema = z.object({
     "image/tiff",
     "image/gif",
     "image/bmp",
-    "image/webp"
+    "image/webp",
+    "image/heic",
+    "image/heif"
   ]),
   base64Data: z.string().min(16).max(20_000_000)
 });
