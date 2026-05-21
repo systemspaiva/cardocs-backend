@@ -1,5 +1,6 @@
 import {
   InvoiceDocumentInput,
+  InvoiceExpenseKind,
   InvoiceScanDraft
 } from "../domain/models.js";
 
@@ -15,6 +16,30 @@ export interface PartReplacementRecommendation {
   confidence: number;
   rationale: string;
   source: "ai" | "catalog";
+}
+
+export interface PartLifeSuggestionRequestItem {
+  description: string;
+}
+
+export interface PartLifeSuggestionRequest {
+  items: PartLifeSuggestionRequestItem[];
+  context?: {
+    expenseKind?: InvoiceExpenseKind;
+    serviceTitle?: string;
+  };
+}
+
+export interface PartLifeRecommendation {
+  partName: string;
+  lifeKm: number | null;
+  lifeMonths: number | null;
+  confidence: number;
+  rationale: string;
+}
+
+export interface PartLifeSuggestionResponse {
+  recommendations: PartLifeRecommendation[];
 }
 
 export type AutomotiveChatRole = "user" | "assistant";
@@ -65,5 +90,6 @@ export interface AutomotiveChatStreamOptions {
 export interface CardocsIaGateway {
   analyzeInvoice(input: InvoiceDocumentInput): Promise<InvoiceScanDraft>;
   recommendPartReplacement(input: PartReplacementRecommendationRequest): Promise<PartReplacementRecommendation>;
+  suggestPartLife(input: PartLifeSuggestionRequest): Promise<PartLifeSuggestionResponse>;
   streamAutomotiveChat(input: AutomotiveChatRequest, options?: AutomotiveChatStreamOptions): AsyncIterable<AutomotiveChatStreamEvent>;
 }
