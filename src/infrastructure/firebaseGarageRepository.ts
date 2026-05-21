@@ -1082,10 +1082,20 @@ function toPartReplacementRecord(value: FirebaseFirestore.DocumentData, fallback
   };
 }
 
+const VAULT_DOCUMENT_CHECKLIST_KINDS: ReadonlySet<string> = new Set([
+  "cautelar",
+  "transferencia",
+  "ipva",
+  "nfCompra"
+]);
+
 function toVaultDocument(value: FirebaseFirestore.DocumentData, fallbackId: string): VaultDocument {
   const title = stringValue(value.title);
   const serviceTitle = stringValue(value.serviceTitle, title) || null;
   const lineItems = Array.isArray(value.lineItems) ? value.lineItems.map(toInvoiceLineItem) : [];
+  const checklistKind = typeof value.checklistKind === "string" && VAULT_DOCUMENT_CHECKLIST_KINDS.has(value.checklistKind)
+    ? (value.checklistKind as VaultDocument["checklistKind"])
+    : null;
   return {
     id: stringValue(value.id, fallbackId),
     title,
@@ -1093,6 +1103,7 @@ function toVaultDocument(value: FirebaseFirestore.DocumentData, fallbackId: stri
     amount: numberValue(value.amount),
     status: stringValue(value.status),
     kind: value.kind === "vehicleDocument" || value.kind === "expenseReceipt" ? value.kind : null,
+    checklistKind,
     documentType: nullableStringValue(value.documentType),
     notes: nullableStringValue(value.notes),
     supplierName: stringValue(value.supplierName) || null,

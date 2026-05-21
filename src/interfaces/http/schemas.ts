@@ -285,6 +285,13 @@ export const maintenanceRecordSchema = z.object({
   attachment: documentAttachmentSchema.nullable().optional()
 });
 
+export const vaultDocumentChecklistKindSchema = z.enum([
+  "cautelar",
+  "transferencia",
+  "ipva",
+  "nfCompra"
+]);
+
 export const vaultDocumentSchema = z.object({
   id: z.string().min(1),
   title: z.string(),
@@ -292,6 +299,7 @@ export const vaultDocumentSchema = z.object({
   amount: moneyNumberSchema,
   status: z.string(),
   kind: z.enum(["expenseReceipt", "vehicleDocument"]).nullable().optional(),
+  checklistKind: vaultDocumentChecklistKindSchema.nullable().optional(),
   documentType: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
   supplierName: z.string().nullable().optional(),
@@ -498,6 +506,7 @@ export const createVehicleDocumentSchema = z.object({
   vehicleID: vehicleIDSchema,
   title: z.string().trim().min(1).max(160),
   documentType: z.string().trim().min(1).max(80),
+  checklistKind: vaultDocumentChecklistKindSchema.nullable().optional(),
   date: z.string().trim().min(1).max(80),
   notes: z.string().trim().max(2000).nullable().optional(),
   sourceDocument: requiredDocumentInputSchema
@@ -510,6 +519,7 @@ export const updateVaultDocumentSchema = z.object({
   date: optionalEditableTextSchema,
   amount: moneyNumberSchema.min(0).optional(),
   status: optionalEditableTextSchema,
+  checklistKind: vaultDocumentChecklistKindSchema.nullable().optional(),
   documentType: z.string().trim().min(1).max(80).nullable().optional(),
   notes: optionalNullableLongTextSchema,
   supplierName: z.string().trim().min(1).max(160).nullable().optional(),

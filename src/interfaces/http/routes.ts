@@ -318,6 +318,7 @@ export function createRouter(
       amount: 0,
       status: "Anexado",
       kind: "vehicleDocument",
+      checklistKind: body.checklistKind ?? null,
       documentType: body.documentType,
       notes: body.notes ?? null,
       supplierName: null,

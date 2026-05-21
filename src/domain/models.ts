@@ -4,6 +4,17 @@ export type DocumentSource = "cameraScan" | "fileImport" | "photoLibrary";
 export type InvoiceSource = DocumentSource | "manualEntry";
 export type InvoiceExpenseKind = "vehicleService" | "partOrProduct" | "unknown";
 export type VaultDocumentKind = "expenseReceipt" | "vehicleDocument";
+/**
+ * Categoria explícita do documento dentro da checklist pós-onboarding do
+ * veículo (laudo cautelar, transferência, IPVA, NF de compra). Independente
+ * de `VaultDocumentKind`/`documentType` — esses ficam pra texto livre e
+ * legacy. Usado pra detectar "passos pendentes" sem heurística por keyword.
+ */
+export type VaultDocumentChecklistKind =
+  | "cautelar"
+  | "transferencia"
+  | "ipva"
+  | "nfCompra";
 export type VehicleTransferStatus = "pending" | "accepted" | "declined";
 export type InsurancePremiumPeriod = "monthly" | "annual";
 
@@ -172,6 +183,8 @@ export interface VaultDocument {
   amount: number;
   status: string;
   kind?: VaultDocumentKind | null;
+  /** Categoria do documento na checklist pós-onboarding (laudo, IPVA, NF). */
+  checklistKind?: VaultDocumentChecklistKind | null;
   documentType?: string | null;
   notes?: string | null;
   supplierName?: string | null;
@@ -365,6 +378,7 @@ export interface VaultDocumentUpdate {
   date?: string;
   amount?: number;
   status?: string;
+  checklistKind?: VaultDocumentChecklistKind | null;
   documentType?: string | null;
   notes?: string | null;
   supplierName?: string | null;
