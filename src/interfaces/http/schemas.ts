@@ -7,7 +7,7 @@ const nonNegativeIntegerSchema = z.coerce.number().int().min(0);
 const confidenceSchema = z.coerce.number().int().min(0).max(100);
 const vehicleIDSchema = z.string().trim().min(1).transform((value) => value.toLowerCase());
 const transferIDSchema = z.string().trim().min(1).transform((value) => value.toLowerCase());
-const documentIDSchema = z.string().trim().min(1);
+const documentIDSchema = z.string().trim().min(1).transform((value) => value.toLowerCase());
 const optionalEditableTextSchema = z.string().trim().min(1).max(160).optional();
 const optionalNullableLongTextSchema = z.string().trim().max(2000).nullable().optional();
 const documentSourceSchema = z.enum(["cameraScan", "fileImport", "photoLibrary"]);
