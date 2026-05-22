@@ -1,5 +1,5 @@
 import { UserSubscription } from "../domain/models.js";
 
 export interface SubscriptionTransactionVerifier {
-  verify(signedTransactionInfo: string, expectedAppAccountToken: string): Promise<Omit<UserSubscription, "syncedAt">>;
+  verify(signedTransactionInfo: string): Promise<Omit<UserSubscription, "syncedAt">>;
 }

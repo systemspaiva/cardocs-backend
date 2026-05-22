@@ -74,8 +74,26 @@ export class FirebaseUserRepository {
 
   async syncSubscription(userId: string, subscription: Omit<UserSubscription, "syncedAt">): Promise<void> {
     const expiresAt = new Date(subscription.expiresAt);
-    await this.db.collection("users").doc(userId).set(
-      {
+    const userRef = this.db.collection("users").doc(userId);
+    const matchingSubscriptions = this.db
+      .collection("users")
+      .where("subscription.originalTransactionId", "==", subscription.originalTransactionId);
+
+    await this.db.runTransaction(async (transaction) => {
+      const existingOwners = await transaction.get(matchingSubscriptions);
+      for (const ownerSnapshot of existingOwners.docs) {
+        if (ownerSnapshot.id === userId) continue;
+        transaction.set(
+          ownerSnapshot.ref,
+          {
+            subscription: FieldValue.delete(),
+            updatedAt: FieldValue.serverTimestamp()
+          },
+          { merge: true }
+        );
+      }
+
+      transaction.set(userRef, {
         subscription: {
           plan: subscription.plan,
           productId: subscription.productId,
@@ -85,9 +103,8 @@ export class FirebaseUserRepository {
           syncedAt: FieldValue.serverTimestamp()
         },
         updatedAt: FieldValue.serverTimestamp()
-      },
-      { merge: true }
-    );
+      }, { merge: true });
+    });
   }
 
   async clearSubscription(userId: string): Promise<void> {

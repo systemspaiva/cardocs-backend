@@ -354,12 +354,31 @@ function normalizeInvoicePartLifeRecommendations(draftId: string, value: unknown
       lifeKm,
       lifeMonths,
       confidence: clampConfidence(record.confidence),
-      rationale: sanitizeText(record.rationale, 160) ?? "Vida util estimada para acompanhamento preventivo."
+      rationale: sanitizeText(record.rationale, 160) ?? "Vida util estimada para acompanhamento preventivo.",
+      sourceDescriptions: normalizeSourceDescriptions(record.sourceDescriptions)
     });
     if (unique.size >= 12) break;
   }
 
   return Array.from(unique.values());
+}
+
+function normalizeSourceDescriptions(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const cleaned: string[] = [];
+  const seen = new Set<string>();
+  for (const entry of value) {
+    if (typeof entry !== "string") continue;
+    const trimmed = entry.split(/\s+/).join(" ").trim();
+    if (!trimmed) continue;
+    const truncated = trimmed.slice(0, 120);
+    const dedupKey = truncated.toLowerCase();
+    if (seen.has(dedupKey)) continue;
+    seen.add(dedupKey);
+    cleaned.push(truncated);
+    if (cleaned.length >= 6) break;
+  }
+  return cleaned;
 }
 
 function positiveIntegerOrNull(value: unknown, max: number): number | null {

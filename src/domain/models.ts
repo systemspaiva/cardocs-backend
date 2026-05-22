@@ -323,6 +323,7 @@ export interface InvoicePartLifeRecommendation {
   lifeMonths?: number | null;
   confidence: number;
   rationale: string;
+  sourceDescriptions: string[];
 }
 
 export interface InvoicePartLifeEntry {

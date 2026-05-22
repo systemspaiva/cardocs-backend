@@ -39,10 +39,7 @@ export class AppStoreSubscriptionVerifier implements SubscriptionTransactionVeri
     );
   }
 
-  async verify(
-    signedTransactionInfo: string,
-    expectedAppAccountToken: string
-  ): Promise<Omit<UserSubscription, "syncedAt">> {
+  async verify(signedTransactionInfo: string): Promise<Omit<UserSubscription, "syncedAt">> {
     const verifier = await this.verifier();
     const transaction = await verifier.verifyAndDecodeTransaction(signedTransactionInfo).catch((error: unknown) => {
       if (error instanceof VerificationException) {
@@ -65,10 +62,6 @@ export class AppStoreSubscriptionVerifier implements SubscriptionTransactionVeri
       transaction.revocationDate
     ) {
       throw new ValidationError("Assinatura da App Store invalida ou expirada.");
-    }
-
-    if (transaction.appAccountToken?.toLowerCase() !== expectedAppAccountToken.toLowerCase()) {
-      throw new ValidationError("Assinatura da App Store nao pertence a esta conta.");
     }
 
     return {

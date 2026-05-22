@@ -1,5 +1,5 @@
 import { NextFunction, Request, Response, Router } from "express";
-import { createHash, randomUUID } from "crypto";
+import { randomUUID } from "crypto";
 import { getAuth, type DecodedIdToken, type UserRecord } from "firebase-admin/auth";
 import { DocumentAttachmentStore } from "../../application/documentAttachments.js";
 import { DeleteAccountUseCase } from "../../application/accountDeletion.js";
@@ -34,6 +34,7 @@ import {
   plateLookupSchema,
   pushDeviceTokenRegistrationSchema,
   pushDeviceTokenRemovalSchema,
+  removePartReplacementSchema,
   resaleDossierRequestSchema,
   saveInvoiceSchema,
   syncSubscriptionSchema,
@@ -129,7 +130,7 @@ export function createRouter(
     const ownerId = requireOwnerId(request);
     await userRepository.syncSubscription(
       ownerId,
-      await subscriptionVerifier.verify(body.signedTransactionInfo, appAccountTokenForOwnerId(ownerId))
+      await subscriptionVerifier.verify(body.signedTransactionInfo)
     );
     response.status(204).send();
   }));
@@ -243,6 +244,11 @@ export function createRouter(
   router.post("/v1/part-replacements", asyncHandler(async (request: AuthenticatedRequest, response) => {
     const body = createPartReplacementSchema.parse(request.body);
     response.status(201).json(await repository.savePartReplacement(requireOwnerId(request), body));
+  }));
+
+  router.post("/v1/part-replacements/remove", asyncHandler(async (request: AuthenticatedRequest, response) => {
+    const body = removePartReplacementSchema.parse(request.body);
+    response.json(await repository.removePartReplacement(requireOwnerId(request), body));
   }));
 
   router.post("/v1/part-replacements/recommendation", asyncHandler(async (request: AuthenticatedRequest, response) => {
@@ -493,20 +499,6 @@ function writeSseHeaders(response: Response): void {
 function writeSseEvent(response: Response, event: string, data: unknown): void {
   response.write(`event: ${event}\n`);
   response.write(`data: ${JSON.stringify(data)}\n\n`);
-}
-
-function appAccountTokenForOwnerId(ownerId: string): string {
-  const bytes = Array.from(createHash("sha256").update(ownerId).digest().subarray(0, 16));
-  bytes[6] = (bytes[6] & 0x0f) | 0x50;
-  bytes[8] = (bytes[8] & 0x3f) | 0x80;
-  const hex = Buffer.from(bytes).toString("hex");
-  return [
-    hex.slice(0, 8),
-    hex.slice(8, 12),
-    hex.slice(12, 16),
-    hex.slice(16, 20),
-    hex.slice(20)
-  ].join("-");
 }
 
 async function ensureInvoiceScanAccess(userRepository: FirebaseUserRepository, ownerId: string): Promise<void> {

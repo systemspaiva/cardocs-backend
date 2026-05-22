@@ -411,6 +411,39 @@ export class FirebaseGarageRepository {
     return this.loadDashboard(ownerId);
   }
 
+  async removePartReplacement(ownerId: string, input: {
+    vehicleID: string;
+    partName: string;
+  }): Promise<VehicleDashboard> {
+    const vehicleRef = await this.resolveVehicleRef(ownerId, input.vehicleID);
+    const requestedPartName = partNameFromServiceLabel(input.partName);
+    const requestedKey = partIdentityKey(requestedPartName);
+
+    await this.db.runTransaction(async (transaction) => {
+      const [vehicleDoc, replacementSnapshot] = await Promise.all([
+        transaction.get(vehicleRef),
+        transaction.get(vehicleRef.collection("partReplacements"))
+      ]);
+      if (!vehicleDoc.exists) {
+        throw new NotFoundError("Veiculo nao encontrado para remover peca monitorada.");
+      }
+
+      const matchingDocs = replacementSnapshot.docs.filter((doc) => {
+        const record = toPartReplacementRecord(doc.data(), doc.id);
+        return partIdentityKey(partNameFromServiceLabel(record.partName)) === requestedKey;
+      });
+
+      if (matchingDocs.length === 0) {
+        throw new NotFoundError("Peca monitorada nao encontrada.");
+      }
+
+      matchingDocs.forEach((doc) => transaction.delete(doc.ref));
+      transaction.set(vehicleRef, { updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    });
+
+    return this.loadDashboard(ownerId);
+  }
+
   async saveVehicleInsurance(ownerId: string, input: {
     vehicleID: string;
     insurerName: string;

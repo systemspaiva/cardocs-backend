@@ -330,7 +330,8 @@ const invoicePartLifeRecommendationSchema = z.object({
   lifeKm: z.coerce.number().int().positive().max(500_000).nullable().optional(),
   lifeMonths: z.coerce.number().int().positive().max(240).nullable().optional(),
   confidence: confidenceSchema,
-  rationale: z.string().trim().min(1)
+  rationale: z.string().trim().min(1),
+  sourceDescriptions: z.array(z.string().trim().min(1).max(120)).max(6).default([])
 }).superRefine((input, context) => {
   if (!input.lifeKm && !input.lifeMonths) {
     context.addIssue({
@@ -445,6 +446,11 @@ export const createPartReplacementSchema = z.object({
       message: "A revisao deve seguir a agenda de 10.000 km."
     });
   }
+});
+
+export const removePartReplacementSchema = z.object({
+  vehicleID: vehicleIDSchema,
+  partName: z.string().trim().min(2).max(80)
 });
 
 export const partReplacementRecommendationSchema = z.object({
