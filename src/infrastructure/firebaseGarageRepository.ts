@@ -411,6 +411,77 @@ export class FirebaseGarageRepository {
     return this.loadDashboard(ownerId);
   }
 
+  async saveInvoicePartReplacement(ownerId: string, input: {
+    vehicleID: string;
+    documentID: string;
+    partName: string;
+    serviceDate: string;
+    mileageAtService: number;
+    lifeKm?: number | null;
+    lifeMonths?: number | null;
+  }): Promise<VehicleDashboard> {
+    const vehicleRef = await this.resolveVehicleRef(ownerId, input.vehicleID);
+    const documentRef = vehicleRef.collection("vaultDocuments").doc(input.documentID);
+    const partName = partNameFromServiceLabel(input.partName);
+    const partKey = partIdentityKey(partName);
+    if (!partKey) {
+      throw new ValidationError("Informe a peca que deseja monitorar.");
+    }
+    const replacementId = deterministicUuid(
+      "invoice-part-replacement",
+      `${ownerId}:${vehicleRef.id}:${input.documentID}:${partKey}`.toLowerCase()
+    );
+    const replacementRef = vehicleRef.collection("partReplacements").doc(replacementId);
+    const timelineQuery = vehicleRef.collection("timeline").where("documentID", "==", input.documentID).limit(1);
+    const mileageAtService = Math.max(1, Math.trunc(input.mileageAtService));
+
+    await this.db.runTransaction(async (transaction) => {
+      const [vehicleDoc, documentDoc, replacementDoc, timelineSnapshot] = await Promise.all([
+        transaction.get(vehicleRef),
+        transaction.get(documentRef),
+        transaction.get(replacementRef),
+        transaction.get(timelineQuery)
+      ]);
+      if (!vehicleDoc.exists) {
+        throw new NotFoundError("Veiculo nao encontrado para monitorar peca.");
+      }
+      if (!documentDoc.exists) {
+        throw new NotFoundError("Nota fiscal nao encontrada para monitorar peca.");
+      }
+      const documentKind = documentDoc.data()?.kind;
+      if (documentKind && documentKind !== "expenseReceipt") {
+        throw new ValidationError("Apenas notas fiscais podem iniciar acompanhamento de peca.");
+      }
+
+      const currentVehicle = toVehicleProfile(vehicleDoc.data()?.vehicle, vehicleRef.id, { idOverride: vehicleRef.id });
+      const maintenanceRecordID = timelineSnapshot.docs[0]?.id ?? input.documentID;
+      const serviceTitle = `Troca de ${partName}`;
+      const replacement: PartReplacementRecord = {
+        id: replacementId,
+        partName,
+        brandName: null,
+        serviceTitle,
+        iconName: iconNameForPartName(partName),
+        serviceDate: input.serviceDate,
+        amount: 0,
+        mileageAtService,
+        lifeKm: input.lifeKm ?? null,
+        lifeMonths: input.lifeMonths ?? null,
+        scheduledRevisionMileage: null,
+        scheduledRevisionWorkshopKind: null,
+        maintenanceRecordID
+      };
+      const vehicleUpdate = mileageAtService > currentVehicle.mileage
+        ? { vehicle: { ...currentVehicle, mileage: mileageAtService }, updatedAt: FieldValue.serverTimestamp() }
+        : { updatedAt: FieldValue.serverTimestamp() };
+
+      transaction.set(replacementRef, withTimestamps(replacement, replacementDoc.exists), { merge: true });
+      transaction.set(vehicleRef, vehicleUpdate, { merge: true });
+    });
+
+    return this.loadDashboard(ownerId);
+  }
+
   async removePartReplacement(ownerId: string, input: {
     vehicleID: string;
     partName: string;

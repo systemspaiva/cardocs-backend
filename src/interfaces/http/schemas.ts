@@ -448,6 +448,24 @@ export const createPartReplacementSchema = z.object({
   }
 });
 
+export const createInvoicePartReplacementSchema = z.object({
+  vehicleID: vehicleIDSchema,
+  documentID: documentIDSchema,
+  partName: z.string().trim().min(2).max(80),
+  serviceDate: maintenanceDateSchema,
+  mileageAtService: z.coerce.number().int().positive().max(2_000_000),
+  lifeKm: z.coerce.number().int().positive().max(500_000).nullable().optional(),
+  lifeMonths: z.coerce.number().int().positive().max(240).nullable().optional()
+}).superRefine((input, context) => {
+  if (!input.lifeKm && !input.lifeMonths) {
+    context.addIssue({
+      code: "custom",
+      path: ["lifeKm"],
+      message: "Informe a vida util em km ou meses."
+    });
+  }
+});
+
 export const removePartReplacementSchema = z.object({
   vehicleID: vehicleIDSchema,
   partName: z.string().trim().min(2).max(80)

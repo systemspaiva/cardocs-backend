@@ -13,10 +13,8 @@ import {
 import { buildInvoiceScanDraft, InvoiceExtraction } from "../application/invoiceDraftBuilder.js";
 import {
   InvoiceDocumentInput,
-  InvoicePartLifeRecommendation,
   InvoiceScanDraft
 } from "../domain/models.js";
-import { deterministicUuid } from "../domain/factories.js";
 
 interface ErrorPayload {
   error?: string;
@@ -29,8 +27,7 @@ export class CardocsIaClient implements CardocsIaGateway {
 
   private constructor(
     private readonly baseURL: string,
-    private readonly timeoutMs: number,
-    private readonly partLifeTimeoutMs: number
+    private readonly timeoutMs: number
   ) {}
 
   static fromEnvironment(): CardocsIaClient | null {
@@ -38,8 +35,7 @@ export class CardocsIaClient implements CardocsIaGateway {
     if (!baseURL) return null;
     return new CardocsIaClient(
       baseURL.replace(/\/+$/, ""),
-      parseTimeout(process.env.CARDOCS_IA_TIMEOUT_MS, 120000),
-      parseTimeout(process.env.CARDOCS_IA_PART_LIFE_TIMEOUT_MS, 8000, 1000, 30000)
+      parseTimeout(process.env.CARDOCS_IA_TIMEOUT_MS, 120000)
     );
   }
 
@@ -53,10 +49,7 @@ export class CardocsIaClient implements CardocsIaGateway {
       pageCount: input.pageCount,
       document: input.document
     });
-    const draft = buildInvoiceScanDraft(extraction, input);
-    const partLifeRecommendations = await this.suggestInvoicePartLifeRecommendations(draft);
-    if (partLifeRecommendations.length === 0) return draft;
-    return { ...draft, partLifeRecommendations };
+    return buildInvoiceScanDraft(extraction, input);
   }
 
   async recommendPartReplacement(input: PartReplacementRecommendationRequest): Promise<PartReplacementRecommendation> {
@@ -65,32 +58,6 @@ export class CardocsIaClient implements CardocsIaGateway {
 
   async suggestPartLife(input: PartLifeSuggestionRequest): Promise<PartLifeSuggestionResponse> {
     return this.post("/internal/v1/parts/life-suggestions", input);
-  }
-
-  private async suggestInvoicePartLifeRecommendations(draft: InvoiceScanDraft): Promise<InvoicePartLifeRecommendation[]> {
-    if (draft.expenseKind !== "vehicleService" || draft.lineItems.length === 0) return [];
-
-    const trimmedServiceTitle = draft.serviceTitle.trim();
-    try {
-      const response = await this.post<PartLifeSuggestionResponse>(
-        "/internal/v1/parts/life-suggestions",
-        {
-          items: draft.lineItems.map((item) => ({ description: item.description })),
-          context: {
-            expenseKind: draft.expenseKind,
-            ...(trimmedServiceTitle ? { serviceTitle: trimmedServiceTitle } : {})
-          }
-        },
-        this.partLifeTimeoutMs
-      );
-      return normalizeInvoicePartLifeRecommendations(draft.id, response.recommendations);
-    } catch (error) {
-      console.warn("invoice_part_life_suggest_failed", JSON.stringify({
-        draftId: draft.id,
-        message: error instanceof Error ? error.message : "unknown"
-      }));
-      return [];
-    }
   }
 
   async *streamAutomotiveChat(
@@ -329,86 +296,6 @@ function toAppError(statusCode: number, payload: ErrorPayload | undefined): AppE
     statusCode,
     payload?.error ?? "cardocs_ia_error"
   );
-}
-
-function normalizeInvoicePartLifeRecommendations(draftId: string, value: unknown): InvoicePartLifeRecommendation[] {
-  if (!Array.isArray(value)) return [];
-
-  const unique = new Map<string, InvoicePartLifeRecommendation>();
-  for (const item of value) {
-    if (!item || typeof item !== "object") continue;
-    const record = item as Record<string, unknown>;
-    const partName = sanitizeText(record.partName, 80);
-    if (!partName || partName.length < 2) continue;
-
-    const lifeKm = positiveIntegerOrNull(record.lifeKm, 500_000);
-    const lifeMonths = positiveIntegerOrNull(record.lifeMonths, 240);
-    if (!lifeKm && !lifeMonths) continue;
-
-    const key = partLifeKey(partName);
-    if (!key || unique.has(key)) continue;
-
-    unique.set(key, {
-      id: deterministicUuid("invoice-part-life", `${draftId}:${key}`),
-      partName,
-      lifeKm,
-      lifeMonths,
-      confidence: clampConfidence(record.confidence),
-      rationale: sanitizeText(record.rationale, 160) ?? "Vida util estimada para acompanhamento preventivo.",
-      sourceDescriptions: normalizeSourceDescriptions(record.sourceDescriptions)
-    });
-    if (unique.size >= 12) break;
-  }
-
-  return Array.from(unique.values());
-}
-
-function normalizeSourceDescriptions(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  const cleaned: string[] = [];
-  const seen = new Set<string>();
-  for (const entry of value) {
-    if (typeof entry !== "string") continue;
-    const trimmed = entry.split(/\s+/).join(" ").trim();
-    if (!trimmed) continue;
-    const truncated = trimmed.slice(0, 120);
-    const dedupKey = truncated.toLowerCase();
-    if (seen.has(dedupKey)) continue;
-    seen.add(dedupKey);
-    cleaned.push(truncated);
-    if (cleaned.length >= 6) break;
-  }
-  return cleaned;
-}
-
-function positiveIntegerOrNull(value: unknown, max: number): number | null {
-  const number = Number(value);
-  if (!Number.isFinite(number)) return null;
-  const integer = Math.trunc(number);
-  if (integer <= 0 || integer > max) return null;
-  return integer;
-}
-
-function clampConfidence(value: unknown): number {
-  const number = Number(value);
-  if (!Number.isFinite(number)) return 70;
-  return Math.max(0, Math.min(100, Math.trunc(number)));
-}
-
-function sanitizeText(value: unknown, maxLength: number): string | null {
-  if (typeof value !== "string") return null;
-  const cleaned = value.split(/\s+/).join(" ").trim();
-  if (!cleaned || cleaned.toLowerCase() === "null") return null;
-  return cleaned.slice(0, maxLength);
-}
-
-function partLifeKey(value: string): string {
-  return value
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "")
-    .replace(/[^a-zA-Z0-9]+/g, " ")
-    .trim()
-    .toLowerCase();
 }
 
 function parseTimeout(value: string | undefined, fallback: number, min = 1000, max = 120000): number {
