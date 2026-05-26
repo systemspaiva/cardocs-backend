@@ -3,7 +3,9 @@ import {
   InvoiceDraftMissingField,
   InvoiceExpenseKind,
   InvoiceLineItem,
-  InvoiceScanDraft
+  InvoicePartLifeRecommendation,
+  InvoiceScanDraft,
+  PartReplacementScope
 } from "../domain/models.js";
 import { deterministicUuid, roundMoney, safeMoney } from "../domain/factories.js";
 
@@ -26,9 +28,22 @@ export interface InvoiceExtraction {
   confidence: number;
 }
 
+export interface PartLifeSuggestionItem {
+  partName: string;
+  lifeKm: number | null;
+  lifeMonths: number | null;
+  confidence: number;
+  rationale: string;
+  sourceDescriptions: string[];
+  expectedQuantity?: number | null;
+  detectedQuantity?: number | null;
+  scope?: PartReplacementScope | null;
+}
+
 export function buildInvoiceScanDraft(
   extraction: InvoiceExtraction,
-  input: InvoiceDocumentInput
+  input: InvoiceDocumentInput,
+  partLifeSuggestions: PartLifeSuggestionItem[] = []
 ): InvoiceScanDraft {
   const date = normalizeBrazilianDate(extraction.issuedAt.date);
   const time = normalizeTime(extraction.issuedAt.time);
@@ -97,10 +112,31 @@ export function buildInvoiceScanDraft(
         detail: "Documento pronto para compor historico e dossie de revenda."
       }
     ],
-    partLifeRecommendations: [],
+    partLifeRecommendations: buildPartLifeRecommendations(draftId, partLifeSuggestions),
     requiresUserInput: missingFields.length > 0,
     missingFields
   };
+}
+
+function buildPartLifeRecommendations(
+  draftId: string,
+  suggestions: PartLifeSuggestionItem[]
+): InvoicePartLifeRecommendation[] {
+  return suggestions
+    .filter((item) => item.partName.trim().length > 0)
+    .slice(0, 12)
+    .map((item, index) => ({
+      id: deterministicUuid("invoice-part-life", `${draftId}:${index}:${item.partName}`),
+      partName: item.partName.trim(),
+      lifeKm: item.lifeKm,
+      lifeMonths: item.lifeMonths,
+      confidence: clampConfidence(item.confidence),
+      rationale: item.rationale,
+      sourceDescriptions: item.sourceDescriptions.slice(0, 6),
+      expectedQuantity: item.expectedQuantity ?? null,
+      detectedQuantity: item.detectedQuantity ?? null,
+      scope: item.scope ?? null
+    }));
 }
 
 function mapExpenseKind(value: InvoiceExtractionExpenseKind): InvoiceExpenseKind {

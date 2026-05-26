@@ -1,7 +1,8 @@
 import {
   InvoiceDocumentInput,
   InvoiceExpenseKind,
-  InvoiceScanDraft
+  InvoiceScanDraft,
+  PartReplacementScope
 } from "../domain/models.js";
 
 export interface PartReplacementRecommendationRequest {
@@ -20,6 +21,7 @@ export interface PartReplacementRecommendation {
 
 export interface PartLifeSuggestionRequestItem {
   description: string;
+  quantity?: number | null;
 }
 
 export interface PartLifeSuggestionRequest {
@@ -37,6 +39,9 @@ export interface PartLifeRecommendation {
   confidence: number;
   rationale: string;
   sourceDescriptions?: string[];
+  expectedQuantity?: number | null;
+  detectedQuantity?: number | null;
+  scope?: PartReplacementScope | null;
 }
 
 export interface PartLifeSuggestionResponse {

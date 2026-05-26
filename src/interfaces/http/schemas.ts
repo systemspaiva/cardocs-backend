@@ -324,6 +324,8 @@ export const invoiceLineItemSchema = z.object({
   totalAmount: positiveMoneyNumberSchema
 });
 
+const partReplacementScopeSchema = z.enum(["complete", "front", "rear", "partial"]);
+
 const invoicePartLifeRecommendationSchema = z.object({
   id: z.string().min(1),
   partName: z.string().trim().min(2).max(80),
@@ -331,7 +333,10 @@ const invoicePartLifeRecommendationSchema = z.object({
   lifeMonths: z.coerce.number().int().positive().max(240).nullable().optional(),
   confidence: confidenceSchema,
   rationale: z.string().trim().min(1),
-  sourceDescriptions: z.array(z.string().trim().min(1).max(120)).max(6).default([])
+  sourceDescriptions: z.array(z.string().trim().min(1).max(120)).max(6).default([]),
+  expectedQuantity: z.coerce.number().int().positive().max(99).nullable().optional(),
+  detectedQuantity: z.coerce.number().int().positive().max(99).nullable().optional(),
+  scope: partReplacementScopeSchema.nullable().optional()
 }).superRefine((input, context) => {
   if (!input.lifeKm && !input.lifeMonths) {
     context.addIssue({
@@ -346,7 +351,10 @@ const invoicePartLifeEntrySchema = z.object({
   partName: z.string().trim().min(2).max(80),
   lifeKm: z.coerce.number().int().positive().max(500_000).nullable().optional(),
   lifeMonths: z.coerce.number().int().positive().max(240).nullable().optional(),
-  mileageAtService: z.coerce.number().int().positive().max(2_000_000)
+  mileageAtService: z.coerce.number().int().positive().max(2_000_000),
+  quantity: z.coerce.number().int().positive().max(99).nullable().optional(),
+  expectedQuantity: z.coerce.number().int().positive().max(99).nullable().optional(),
+  scope: partReplacementScopeSchema.nullable().optional()
 }).superRefine((input, context) => {
   if (!input.lifeKm && !input.lifeMonths) {
     context.addIssue({
@@ -421,7 +429,10 @@ export const createPartReplacementSchema = z.object({
   scheduledRevisionMileage: nonNegativeIntegerSchema.nullable().optional(),
   scheduledRevisionWorkshopKind: z.enum(["dealership", "other"]).nullable().optional(),
   lifeKm: z.coerce.number().int().positive().max(500_000).nullable().optional(),
-  lifeMonths: z.coerce.number().int().positive().max(240).nullable().optional()
+  lifeMonths: z.coerce.number().int().positive().max(240).nullable().optional(),
+  quantity: z.coerce.number().int().positive().max(99).nullable().optional(),
+  expectedQuantity: z.coerce.number().int().positive().max(99).nullable().optional(),
+  scope: partReplacementScopeSchema.nullable().optional()
 }).superRefine((input, context) => {
   if (!input.lifeKm && !input.lifeMonths) {
     context.addIssue({
@@ -454,8 +465,12 @@ export const createInvoicePartReplacementSchema = z.object({
   partName: z.string().trim().min(2).max(80),
   serviceDate: maintenanceDateSchema,
   mileageAtService: z.coerce.number().int().positive().max(2_000_000),
+  amount: moneyNumberSchema.min(0).nullable().optional(),
   lifeKm: z.coerce.number().int().positive().max(500_000).nullable().optional(),
-  lifeMonths: z.coerce.number().int().positive().max(240).nullable().optional()
+  lifeMonths: z.coerce.number().int().positive().max(240).nullable().optional(),
+  quantity: z.coerce.number().int().positive().max(99).nullable().optional(),
+  expectedQuantity: z.coerce.number().int().positive().max(99).nullable().optional(),
+  scope: partReplacementScopeSchema.nullable().optional()
 }).superRefine((input, context) => {
   if (!input.lifeKm && !input.lifeMonths) {
     context.addIssue({

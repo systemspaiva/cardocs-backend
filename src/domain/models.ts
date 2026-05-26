@@ -147,6 +147,19 @@ export interface MaintenanceRecord {
   attachment?: DocumentAttachment | null;
 }
 
+export type PartReplacementScope = "complete" | "front" | "rear" | "partial";
+
+export interface PartHealthHistoryEntry {
+  id: string;
+  serviceDate: string;
+  mileageAtService: number;
+  amount: number;
+  quantity?: number | null;
+  expectedQuantity?: number | null;
+  scope?: PartReplacementScope | null;
+  supplierLabel?: string | null;
+}
+
 export interface PartHealth {
   id: string;
   iconName: string;
@@ -158,6 +171,16 @@ export interface PartHealth {
   tone: PartHealthTone;
   lastServiceDate?: string | null;
   nextServiceDate?: string | null;
+  /** Quantas trocas dessa peça já foram registradas (histórico). */
+  replacementCount: number;
+  /** Quantidade trocada na última manutenção (ex.: 2 de 4 pastilhas). */
+  lastQuantity?: number | null;
+  /** Quantidade total esperada pela peça (ex.: 4 pneus, 4 amortecedores). */
+  expectedQuantity?: number | null;
+  /** Escopo da última troca: complete/front/rear/partial. */
+  lastScope?: PartReplacementScope | null;
+  /** Trocas anteriores em ordem cronológica decrescente. Cap em 8 entradas. */
+  history: PartHealthHistoryEntry[];
 }
 
 export interface PartReplacementRecord {
@@ -174,6 +197,12 @@ export interface PartReplacementRecord {
   scheduledRevisionMileage?: number | null;
   scheduledRevisionWorkshopKind?: "dealership" | "other" | null;
   maintenanceRecordID: string;
+  /** Quantos itens foram trocados nesse serviço. null se desconhecido. */
+  quantity?: number | null;
+  /** Quantidade total esperada pela peça (vem do catálogo IA). */
+  expectedQuantity?: number | null;
+  /** complete/front/rear/partial — inferido pela IA ou informado manualmente. */
+  scope?: PartReplacementScope | null;
 }
 
 export interface VaultDocument {
@@ -324,6 +353,9 @@ export interface InvoicePartLifeRecommendation {
   confidence: number;
   rationale: string;
   sourceDescriptions: string[];
+  expectedQuantity?: number | null;
+  detectedQuantity?: number | null;
+  scope?: PartReplacementScope | null;
 }
 
 export interface InvoicePartLifeEntry {
@@ -331,6 +363,9 @@ export interface InvoicePartLifeEntry {
   lifeKm?: number | null;
   lifeMonths?: number | null;
   mileageAtService: number;
+  quantity?: number | null;
+  expectedQuantity?: number | null;
+  scope?: PartReplacementScope | null;
 }
 
 export type InvoiceDraftMissingField =

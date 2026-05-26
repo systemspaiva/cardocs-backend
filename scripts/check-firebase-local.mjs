@@ -90,6 +90,7 @@ const repository = read("src/infrastructure/firebaseGarageRepository.ts");
 const appStoreVerifier = read("src/infrastructure/appStoreSubscriptionVerifier.ts");
 const plateProvider = read("src/infrastructure/apiplacasVehicleDataProvider.ts");
 const invoiceUseCase = read("src/application/invoiceAnalysis.ts");
+const invoiceDraftBuilder = read("src/application/invoiceDraftBuilder.ts");
 const cardocsIaClient = read("src/infrastructure/cardocsIaClient.ts");
 const accountDeletionUseCase = read("src/application/accountDeletion.ts");
 const accountDataStore = read("src/infrastructure/firebaseAccountDataStore.ts");
@@ -130,8 +131,9 @@ report(
 );
 report(
   "API_INVOICE_PART_LIFE_RECOMMENDATIONS",
-  cardocsIaClient.includes("suggestInvoicePartLifeRecommendations") &&
-    cardocsIaClient.includes("normalizeInvoicePartLifeRecommendations")
+  cardocsIaClient.includes("fetchPartLifeSuggestions") &&
+    cardocsIaClient.includes("suggestPartLife") &&
+    invoiceDraftBuilder.includes("partLifeRecommendations: buildPartLifeRecommendations")
 );
 report("API_BACKEND_DOES_NOT_LOAD_LOCAL_GEMINI", !read("src/index.ts").includes("GenkitInvoiceExtractionProvider") && !read("src/index.ts").includes("GeminiPartRecommendationProvider"));
 report("API_INVOICE_AI_RETURNS_UNKNOWN_WHEN_AMBIGUOUS", domainModels.includes("\"unknown\"") && invoiceUseCase.includes("draft.expenseKind === \"unknown\""));
@@ -144,7 +146,13 @@ report("API_SUBSCRIPTION_APP_STORE_JWS_VERIFICATION", appStoreVerifier.includes(
 report("API_SUBSCRIPTION_MIGRATES_BY_ORIGINAL_TRANSACTION", !routes.includes("appAccountTokenForOwnerId(ownerId)") && read("src/infrastructure/firebaseUserRepository.ts").includes("subscription.originalTransactionId\", \"==\", subscription.originalTransactionId") && read("src/infrastructure/firebaseUserRepository.ts").includes("FieldValue.delete()"));
 report("API_SUBSCRIPTION_FREE_DAYS_PRIORITY", read("src/infrastructure/firebaseUserRepository.ts").includes("freeDaysUntil") && read("src/infrastructure/firebaseUserRepository.ts").indexOf("reason: \"freeDays\"") < read("src/infrastructure/firebaseUserRepository.ts").indexOf("reason: \"subscription\""));
 report("API_INVOICE_SCAN_REQUIRES_ACCESS", routes.includes("ensureInvoiceScanAccess(userRepository, requireOwnerId(request))") && routes.includes("body.draft.source !== \"manualEntry\" || body.sourceDocument?.document"));
-report("API_INVOICE_SAVE_PERSISTS_AUTOMATION_RESULT", routes.includes("saveAutomationResult(requireOwnerId(request), body.vehicleID, result"));
+report(
+  "API_INVOICE_SAVE_PERSISTS_AUTOMATION_RESULT",
+  routes.includes("repository.saveAutomationResult(") &&
+    routes.includes("body.vehicleID") &&
+    routes.includes("result") &&
+    routes.includes("partLifeEntries")
+);
 report("API_VEHICLE_TRANSFER_REQUEST_ROUTE", routes.includes("router.post(\"/v1/vehicle-transfers\"") && routes.includes("getAuth().getUserByEmail") && schemas.includes("vehicleTransferRequestSchema"));
 report("API_VEHICLE_TRANSFER_RESPOND_ROUTE", routes.includes("router.post(\"/v1/vehicle-transfers/respond\"") && schemas.includes("vehicleTransferResponseSchema"));
 report("API_PUSH_DEVICE_TOKEN_ROUTES", routes.includes("router.post(\"/v1/device-tokens\"") && routes.includes("router.post(\"/v1/device-tokens/remove\"") && schemas.includes("pushDeviceTokenRegistrationSchema"));

@@ -2,7 +2,9 @@ import { createHash } from "node:crypto";
 import {
   InvestmentSummary,
   PartHealth,
+  PartHealthHistoryEntry,
   PartReplacementRecord,
+  PartReplacementScope,
   ResaleDossier,
   VehicleCandidate,
   VehicleGarage,
@@ -11,6 +13,8 @@ import {
   VehicleProfile
 } from "./models.js";
 import { ValidationError } from "../application/errors.js";
+
+const maximumHistoryEntries = 8;
 
 export const zeroUuid = "00000000-0000-5000-8000-000000000000";
 export const zeroInvestment: InvestmentSummary = {
@@ -158,17 +162,21 @@ export function calculatePartHealth(vehicle: VehicleProfile, replacements: PartR
     return pendingHealth(vehicle);
   }
 
-  const latestByPart = new Map<string, PartReplacementRecord>();
+  // Agrupa por canonical name pra calcular history + latest sem duplicar.
+  const groupedByPart = new Map<string, PartReplacementRecord[]>();
   for (const replacement of replacements) {
     const key = partIdentityKey(replacement.partName);
-    const current = latestByPart.get(key);
-    if (!current || isReplacementNewer(replacement, current)) {
-      latestByPart.set(key, replacement);
-    }
+    const bucket = groupedByPart.get(key) ?? [];
+    bucket.push(replacement);
+    groupedByPart.set(key, bucket);
   }
 
-  return Array.from(latestByPart.values())
-    .map((replacement) => toPartHealth(vehicle, replacement))
+  return Array.from(groupedByPart.values())
+    .map((group) => {
+      const sorted = [...group].sort((a, b) => (isReplacementNewer(a, b) ? -1 : 1));
+      const latest = sorted[0];
+      return toPartHealth(vehicle, latest, sorted);
+    })
     .sort((left, right) => {
       if (left.tone !== right.tone) return toneRank(left.tone) - toneRank(right.tone);
       return left.percentage - right.percentage;
@@ -316,11 +324,16 @@ function partHealth(vehicle: VehicleProfile, key: string, iconName: string, name
     limit: "Nao informado",
     tone: "neutral",
     lastServiceDate: null,
-    nextServiceDate: null
+    nextServiceDate: null,
+    replacementCount: 0,
+    lastQuantity: null,
+    expectedQuantity: null,
+    lastScope: null,
+    history: []
   };
 }
 
-function toPartHealth(vehicle: VehicleProfile, replacement: PartReplacementRecord): PartHealth {
+function toPartHealth(vehicle: VehicleProfile, replacement: PartReplacementRecord, group: PartReplacementRecord[] = [replacement]): PartHealth {
   const currentMileage = Math.max(0, Math.trunc(vehicle.mileage || 0));
   const lifeKm = positiveIntegerOrNull(replacement.lifeKm);
   const lifeMonths = positiveIntegerOrNull(replacement.lifeMonths);
@@ -339,26 +352,71 @@ function toPartHealth(vehicle: VehicleProfile, replacement: PartReplacementRecor
     dueDate === null ? null : formatMaintenanceDate(dueDate)
   ].filter((value): value is string => Boolean(value));
 
+  const history: PartHealthHistoryEntry[] = group.slice(0, maximumHistoryEntries).map((entry) => ({
+    id: deterministicUuid("part-health-history", `${vehicle.id}:${entry.id}`),
+    serviceDate: entry.serviceDate,
+    mileageAtService: entry.mileageAtService,
+    amount: entry.amount,
+    quantity: entry.quantity ?? null,
+    expectedQuantity: entry.expectedQuantity ?? null,
+    scope: entry.scope ?? null,
+    supplierLabel: null
+  }));
+
   return {
     id: deterministicUuid("part-health", `${vehicle.id}:${partIdentityKey(replacement.partName)}`),
     iconName: replacement.iconName || iconNameForPartName(replacement.partName),
     name: replacement.partName,
-    message: replacementStatusMessage(percentage, kmRemaining, dayRemaining),
+    message: replacementStatusMessage(percentage, kmRemaining, dayRemaining, replacement.scope ?? null, replacement.quantity ?? null, replacement.expectedQuantity ?? null),
     percentage,
     replacedAt: `${formatMileage(replacement.mileageAtService)} km`,
     limit: limitParts.join(" / ") || "Nao informado",
     tone: percentage <= 35 ? "warning" : "healthy",
     lastServiceDate: replacement.serviceDate,
-    nextServiceDate: dueDate === null ? null : formatMaintenanceDate(dueDate)
+    nextServiceDate: dueDate === null ? null : formatMaintenanceDate(dueDate),
+    replacementCount: group.length,
+    lastQuantity: replacement.quantity ?? null,
+    expectedQuantity: replacement.expectedQuantity ?? null,
+    lastScope: replacement.scope ?? null,
+    history
   };
 }
 
-function replacementStatusMessage(percentage: number, kmRemaining: number | null, dayRemaining: number | null): string {
+function replacementStatusMessage(
+  percentage: number,
+  kmRemaining: number | null,
+  dayRemaining: number | null,
+  scope: PartReplacementScope | null,
+  quantity: number | null,
+  expectedQuantity: number | null
+): string {
+  const baseMessage = baseReplacementStatusMessage(percentage, kmRemaining, dayRemaining);
+  const scopeNote = describeScope(scope, quantity, expectedQuantity);
+  return scopeNote ? `${baseMessage} · ${scopeNote}` : baseMessage;
+}
+
+function baseReplacementStatusMessage(percentage: number, kmRemaining: number | null, dayRemaining: number | null): string {
   if (percentage <= 0) return "Troca vencida";
   if (kmRemaining !== null && kmRemaining <= 1000) return `Troca em ${formatMileage(Math.max(0, kmRemaining))} km`;
   if (dayRemaining !== null && dayRemaining <= 30) return `Troca em ${Math.max(0, dayRemaining)} dias`;
   if (percentage <= 35) return "Planeje a proxima troca";
   return "Dentro do plano";
+}
+
+function describeScope(scope: PartReplacementScope | null, quantity: number | null, expectedQuantity: number | null): string | null {
+  if (!scope || scope === "complete") {
+    if (quantity && expectedQuantity && quantity < expectedQuantity) {
+      return `${quantity} de ${expectedQuantity} trocadas`;
+    }
+    return null;
+  }
+  if (scope === "front") return "só dianteiras";
+  if (scope === "rear") return "só traseiras";
+  if (scope === "partial") {
+    if (quantity && expectedQuantity) return `${quantity} de ${expectedQuantity} trocadas`;
+    return "troca parcial";
+  }
+  return null;
 }
 
 function normalizePartKey(value: string): string {
@@ -371,13 +429,50 @@ function normalizePartKey(value: string): string {
 }
 
 function partIdentityKey(value: string): string {
-  return stripServicePrefix(normalizePartKey(value)) || normalizePartKey(value);
+  const stripped = stripServicePrefix(normalizePartKey(value));
+  const semantic = stripAxleScope(stripFillerWords(singularize(stripped)));
+  return semantic || stripped || normalizePartKey(value);
 }
 
 function stripServicePrefix(value: string): string {
   return value
     .replace(/^(troca|substituicao|revisao|servico|manutencao)\s+(de|do|da|dos|das)?\s*/i, "")
     .trim();
+}
+
+/// Remove descritor de eixo pra "pastilhas dianteiras" colapsar com "pastilhas".
+/// O scope/eixo é armazenado separadamente no PartReplacementRecord.
+function stripAxleScope(value: string): string {
+  return value
+    .replace(/\b(dianteir[ao]s?|traseir[ao]s?|trazeir[ao]s?|diant|tras|front|rear|frontal|completo|completa|kit|jogo|conjunto)\b/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/// Heurística leve pra colapsar plurais portugueses ("amortecedores" → "amortecedor",
+/// "pastilhas" → "pastilha"). Não cobre todos os casos mas resolve o comum.
+function singularize(value: string): string {
+  return value
+    .split(" ")
+    .map((token) => {
+      if (token.length <= 3) return token;
+      if (token.endsWith("oes")) return token.slice(0, -3) + "ao"; // alternadores → alternador (não comum), mas botões → botão
+      if (token.endsWith("aes")) return token.slice(0, -3) + "ao";
+      if (token.endsWith("es")) return token.slice(0, -2);
+      if (token.endsWith("s")) return token.slice(0, -1);
+      return token;
+    })
+    .join(" ");
+}
+
+/// Tira preposições que viram ruído no match ("pastilha de freio" e "pastilha"
+/// devem casar). Mantém substantivos significativos.
+function stripFillerWords(value: string): string {
+  const filler = new Set(["de", "do", "da", "dos", "das", "e", "para", "p"]);
+  return value
+    .split(" ")
+    .filter((token) => token.length > 0 && !filler.has(token))
+    .join(" ");
 }
 
 function isReplacementNewer(left: PartReplacementRecord, right: PartReplacementRecord): boolean {

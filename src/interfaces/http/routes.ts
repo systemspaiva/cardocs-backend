@@ -234,7 +234,21 @@ export function createRouter(
       result.record.attachment = attachment;
       result.document.attachment = attachment;
     }
-    response.status(201).json(await repository.saveAutomationResult(requireOwnerId(request), body.vehicleID, result));
+
+    // Enriquece os entries de vida útil com serviceDate da NF — sem isso
+    // o saveAutomationResult não consegue persistir as trocas de peça
+    // detectadas pela IA no momento do scan.
+    const partLifeEntries = body.partLifeEntries.map((entry) => ({
+      ...entry,
+      serviceDate: body.draft.date
+    }));
+
+    response.status(201).json(await repository.saveAutomationResult(
+      requireOwnerId(request),
+      body.vehicleID,
+      result,
+      partLifeEntries
+    ));
   }));
 
   router.post("/v1/part-replacements", asyncHandler(async (request: AuthenticatedRequest, response) => {

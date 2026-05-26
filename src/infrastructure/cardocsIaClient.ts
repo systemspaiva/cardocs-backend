@@ -49,7 +49,49 @@ export class CardocsIaClient implements CardocsIaGateway {
       pageCount: input.pageCount,
       document: input.document
     });
-    return buildInvoiceScanDraft(extraction, input);
+
+    const partLifeSuggestions = await this.fetchPartLifeSuggestions(extraction);
+    return buildInvoiceScanDraft(extraction, input, partLifeSuggestions);
+  }
+
+  // Best-effort: a quebra do enrich nunca derruba a leitura da NF; sempre
+  // retornamos algum draft mesmo quando a IA de vida útil estiver indisponível.
+  private async fetchPartLifeSuggestions(extraction: InvoiceExtraction) {
+    const allowedKinds = new Set(["vehicleService", "partOrProduct"]);
+    if (!allowedKinds.has(extraction.expenseKind)) return [];
+    if (!extraction.items || extraction.items.length === 0) return [];
+
+    try {
+      const response = await this.suggestPartLife({
+        items: extraction.items
+          .map((item) => ({
+            description: item.description,
+            quantity: typeof item.quantity === "number" && item.quantity > 0 ? item.quantity : null
+          }))
+          .filter((item) => item.description && item.description.trim().length > 0),
+        context: {
+          expenseKind: extraction.expenseKind as "vehicleService" | "partOrProduct"
+        }
+      });
+      return response.recommendations.map((rec) => ({
+        partName: rec.partName,
+        lifeKm: rec.lifeKm,
+        lifeMonths: rec.lifeMonths,
+        confidence: rec.confidence,
+        rationale: rec.rationale,
+        sourceDescriptions: rec.sourceDescriptions ?? [],
+        expectedQuantity: rec.expectedQuantity ?? null,
+        detectedQuantity: rec.detectedQuantity ?? null,
+        scope: rec.scope ?? null
+      }));
+    } catch (error) {
+      console.warn(JSON.stringify({
+        severity: "WARNING",
+        message: "part_life_enrichment_failed",
+        errorName: error instanceof Error ? error.name : "unknown"
+      }));
+      return [];
+    }
   }
 
   async recommendPartReplacement(input: PartReplacementRecommendationRequest): Promise<PartReplacementRecommendation> {

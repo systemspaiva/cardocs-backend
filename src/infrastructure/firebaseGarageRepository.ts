@@ -310,6 +310,9 @@ export class FirebaseGarageRepository {
     scheduledRevisionWorkshopKind?: "dealership" | "other" | null;
     lifeKm?: number | null;
     lifeMonths?: number | null;
+    quantity?: number | null;
+    expectedQuantity?: number | null;
+    scope?: "complete" | "front" | "rear" | "partial" | null;
   }): Promise<VehicleDashboard> {
     const vehicleRef = await this.resolveVehicleRef(ownerId, input.vehicleID);
     const partName = partNameFromServiceLabel(input.partName);
@@ -355,7 +358,10 @@ export class FirebaseGarageRepository {
       lifeMonths: input.lifeMonths ?? null,
       scheduledRevisionMileage,
       scheduledRevisionWorkshopKind,
-      maintenanceRecordID: recordId
+      maintenanceRecordID: recordId,
+      quantity: nullableNumberValue(input.quantity),
+      expectedQuantity: nullableNumberValue(input.expectedQuantity),
+      scope: input.scope ?? null
     };
     const record: MaintenanceRecord = {
       id: recordId,
@@ -417,8 +423,12 @@ export class FirebaseGarageRepository {
     partName: string;
     serviceDate: string;
     mileageAtService: number;
+    amount?: number | null;
     lifeKm?: number | null;
     lifeMonths?: number | null;
+    quantity?: number | null;
+    expectedQuantity?: number | null;
+    scope?: "complete" | "front" | "rear" | "partial" | null;
   }): Promise<VehicleDashboard> {
     const vehicleRef = await this.resolveVehicleRef(ownerId, input.vehicleID);
     const documentRef = vehicleRef.collection("vaultDocuments").doc(input.documentID);
@@ -463,13 +473,16 @@ export class FirebaseGarageRepository {
         serviceTitle,
         iconName: iconNameForPartName(partName),
         serviceDate: input.serviceDate,
-        amount: 0,
+        amount: roundMoney(safeMoney(input.amount ?? 0)),
         mileageAtService,
         lifeKm: input.lifeKm ?? null,
         lifeMonths: input.lifeMonths ?? null,
         scheduledRevisionMileage: null,
         scheduledRevisionWorkshopKind: null,
-        maintenanceRecordID
+        maintenanceRecordID,
+        quantity: nullableNumberValue(input.quantity),
+        expectedQuantity: nullableNumberValue(input.expectedQuantity),
+        scope: input.scope ?? null
       };
       const vehicleUpdate = mileageAtService > currentVehicle.mileage
         ? { vehicle: { ...currentVehicle, mileage: mileageAtService }, updatedAt: FieldValue.serverTimestamp() }
@@ -1167,6 +1180,10 @@ function toMaintenanceRecord(value: FirebaseFirestore.DocumentData, fallbackId: 
 
 function toPartReplacementRecord(value: FirebaseFirestore.DocumentData, fallbackId: string): PartReplacementRecord {
   const partName = cleanLabel(value.partName, stringValue(value.serviceTitle, "Peca"));
+  const scopeRaw = typeof value.scope === "string" ? value.scope : null;
+  const scope = scopeRaw === "complete" || scopeRaw === "front" || scopeRaw === "rear" || scopeRaw === "partial"
+    ? scopeRaw
+    : null;
   return {
     id: stringValue(value.id, fallbackId),
     partName,
@@ -1182,7 +1199,10 @@ function toPartReplacementRecord(value: FirebaseFirestore.DocumentData, fallback
     scheduledRevisionWorkshopKind: value.scheduledRevisionWorkshopKind === "dealership" || value.scheduledRevisionWorkshopKind === "other"
       ? value.scheduledRevisionWorkshopKind
       : null,
-    maintenanceRecordID: stringValue(value.maintenanceRecordID)
+    maintenanceRecordID: stringValue(value.maintenanceRecordID),
+    quantity: nullableNumberValue(value.quantity),
+    expectedQuantity: nullableNumberValue(value.expectedQuantity),
+    scope
   };
 }
 
@@ -1361,7 +1381,10 @@ function invoicePartLifeEntriesToReplacements(
       lifeMonths: entry.lifeMonths ?? null,
       scheduledRevisionMileage: null,
       scheduledRevisionWorkshopKind: null,
-      maintenanceRecordID: maintenanceRecordId
+      maintenanceRecordID: maintenanceRecordId,
+      quantity: nullableNumberValue(entry.quantity),
+      expectedQuantity: nullableNumberValue(entry.expectedQuantity),
+      scope: entry.scope ?? null
     };
 
     return {
