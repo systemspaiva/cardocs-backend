@@ -8,7 +8,9 @@ import {
   MaintenanceRecord,
   MaintenanceRecordUpdate,
   OutgoingVehicleTransfer,
+  PartPosition,
   PartReplacementRecord,
+  PartReplacementScope,
   ResaleDossier,
   VehicleFipeQuote,
   VehicleDashboard,
@@ -29,7 +31,10 @@ import {
   generateResaleDossier,
   iconNameForPartName,
   normalizePublicReportSlug,
+  partGroupKey as domainPartGroupKey,
+  partIdentityKey as domainPartIdentityKey,
   publicReportSlug,
+  resolvePartPosition,
   roundMoney,
   safeMoney,
   zeroInvestment,
@@ -312,13 +317,15 @@ export class FirebaseGarageRepository {
     lifeMonths?: number | null;
     quantity?: number | null;
     expectedQuantity?: number | null;
-    scope?: "complete" | "front" | "rear" | "partial" | null;
+    scope?: PartReplacementScope | null;
+    position?: PartPosition | null;
   }): Promise<VehicleDashboard> {
     const vehicleRef = await this.resolveVehicleRef(ownerId, input.vehicleID);
     const partName = partNameFromServiceLabel(input.partName);
+    const position = resolvePartPosition({ position: input.position ?? null, scope: input.scope ?? null });
     const replacementId = deterministicUuid(
       "part-replacement",
-      `${ownerId}:${vehicleRef.id}:${partName}:${input.serviceDate}:${input.mileageAtService}:${input.lifeKm ?? ""}:${input.lifeMonths ?? ""}`.toLowerCase()
+      `${ownerId}:${vehicleRef.id}:${partName}:${position}:${input.serviceDate}:${input.mileageAtService}:${input.lifeKm ?? ""}:${input.lifeMonths ?? ""}`.toLowerCase()
     );
     const recordId = deterministicUuid("maintenance-record", replacementId);
     const replacementRef = vehicleRef.collection("partReplacements").doc(replacementId);
@@ -361,7 +368,8 @@ export class FirebaseGarageRepository {
       maintenanceRecordID: recordId,
       quantity: nullableNumberValue(input.quantity),
       expectedQuantity: nullableNumberValue(input.expectedQuantity),
-      scope: input.scope ?? null
+      scope: input.scope ?? null,
+      position
     };
     const record: MaintenanceRecord = {
       id: recordId,
@@ -428,18 +436,20 @@ export class FirebaseGarageRepository {
     lifeMonths?: number | null;
     quantity?: number | null;
     expectedQuantity?: number | null;
-    scope?: "complete" | "front" | "rear" | "partial" | null;
+    scope?: PartReplacementScope | null;
+    position?: PartPosition | null;
   }): Promise<VehicleDashboard> {
     const vehicleRef = await this.resolveVehicleRef(ownerId, input.vehicleID);
     const documentRef = vehicleRef.collection("vaultDocuments").doc(input.documentID);
     const partName = partNameFromServiceLabel(input.partName);
-    const partKey = partIdentityKey(partName);
+    const partKey = domainPartIdentityKey(partName);
     if (!partKey) {
       throw new ValidationError("Informe a peca que deseja monitorar.");
     }
+    const position = resolvePartPosition({ position: input.position ?? null, scope: input.scope ?? null });
     const replacementId = deterministicUuid(
       "invoice-part-replacement",
-      `${ownerId}:${vehicleRef.id}:${input.documentID}:${partKey}`.toLowerCase()
+      `${ownerId}:${vehicleRef.id}:${input.documentID}:${partKey}:${position}`.toLowerCase()
     );
     const replacementRef = vehicleRef.collection("partReplacements").doc(replacementId);
     const timelineQuery = vehicleRef.collection("timeline").where("documentID", "==", input.documentID).limit(1);
@@ -482,7 +492,8 @@ export class FirebaseGarageRepository {
         maintenanceRecordID,
         quantity: nullableNumberValue(input.quantity),
         expectedQuantity: nullableNumberValue(input.expectedQuantity),
-        scope: input.scope ?? null
+        scope: input.scope ?? null,
+        position
       };
       const vehicleUpdate = mileageAtService > currentVehicle.mileage
         ? { vehicle: { ...currentVehicle, mileage: mileageAtService }, updatedAt: FieldValue.serverTimestamp() }
@@ -498,10 +509,15 @@ export class FirebaseGarageRepository {
   async removePartReplacement(ownerId: string, input: {
     vehicleID: string;
     partName: string;
+    position?: PartPosition | null;
   }): Promise<VehicleDashboard> {
     const vehicleRef = await this.resolveVehicleRef(ownerId, input.vehicleID);
     const requestedPartName = partNameFromServiceLabel(input.partName);
-    const requestedKey = partIdentityKey(requestedPartName);
+    const requestedKey = domainPartIdentityKey(requestedPartName);
+    // Quando `position` vem null/undefined, remove TODAS as posições da
+    // peça (legado / "apagar tudo desse nome"). Com position definido,
+    // remove só o grupo daquela posição.
+    const requestedPosition = input.position ?? null;
 
     await this.db.runTransaction(async (transaction) => {
       const [vehicleDoc, replacementSnapshot] = await Promise.all([
@@ -514,7 +530,11 @@ export class FirebaseGarageRepository {
 
       const matchingDocs = replacementSnapshot.docs.filter((doc) => {
         const record = toPartReplacementRecord(doc.data(), doc.id);
-        return partIdentityKey(partNameFromServiceLabel(record.partName)) === requestedKey;
+        if (domainPartIdentityKey(partNameFromServiceLabel(record.partName)) !== requestedKey) {
+          return false;
+        }
+        if (requestedPosition === null) return true;
+        return resolvePartPosition(record) === requestedPosition;
       });
 
       if (matchingDocs.length === 0) {
@@ -551,10 +571,11 @@ export class FirebaseGarageRepository {
     };
 
     await this.db.runTransaction(async (transaction) => {
-      const [vehicleDoc, timelineSnapshot, documentSnapshot] = await Promise.all([
+      const [vehicleDoc, timelineSnapshot, documentSnapshot, replacementSnapshot] = await Promise.all([
         transaction.get(vehicleRef),
         transaction.get(vehicleRef.collection("timeline")),
-        transaction.get(vehicleRef.collection("vaultDocuments"))
+        transaction.get(vehicleRef.collection("vaultDocuments")),
+        transaction.get(vehicleRef.collection("partReplacements"))
       ]);
       if (!vehicleDoc.exists) {
         throw new NotFoundError("Veiculo nao encontrado para salvar seguro.");
@@ -563,7 +584,8 @@ export class FirebaseGarageRepository {
       const vehicle = toVehicleProfile(vehicleDoc.data()?.vehicle, vehicleRef.id, { idOverride: vehicleRef.id });
       const timeline = timelineSnapshot.docs.map((doc) => toMaintenanceRecord(doc.data(), doc.id));
       const vaultDocuments = documentSnapshot.docs.map((doc) => toVaultDocument(doc.data(), doc.id));
-      const dossier = generateResaleDossier(vehicle, { timeline, vaultDocuments, insurance });
+      const partReplacements = replacementSnapshot.docs.map((doc) => toPartReplacementRecord(doc.data(), doc.id));
+      const dossier = generateResaleDossier(vehicle, { timeline, vaultDocuments, insurance, partReplacements });
       const slug = publicReportSlug(vehicle);
 
       transaction.set(
@@ -870,7 +892,7 @@ export class FirebaseGarageRepository {
       partReplacements,
       vaultDocuments,
       insurance,
-      resaleDossier: generateResaleDossier(vehicle, { timeline, vaultDocuments, insurance })
+      resaleDossier: generateResaleDossier(vehicle, { timeline, vaultDocuments, insurance, partReplacements })
     };
 
     return {
@@ -1178,12 +1200,30 @@ function toMaintenanceRecord(value: FirebaseFirestore.DocumentData, fallbackId: 
   };
 }
 
+const VALID_POSITIONS: ReadonlySet<PartPosition> = new Set([
+  "complete",
+  "front_axle",
+  "rear_axle",
+  "front_left",
+  "front_right",
+  "rear_left",
+  "rear_right",
+  "partial"
+]);
+
 function toPartReplacementRecord(value: FirebaseFirestore.DocumentData, fallbackId: string): PartReplacementRecord {
   const partName = cleanLabel(value.partName, stringValue(value.serviceTitle, "Peca"));
   const scopeRaw = typeof value.scope === "string" ? value.scope : null;
   const scope = scopeRaw === "complete" || scopeRaw === "front" || scopeRaw === "rear" || scopeRaw === "partial"
     ? scopeRaw
     : null;
+  const positionRaw = typeof value.position === "string" ? value.position : null;
+  const storedPosition = positionRaw && VALID_POSITIONS.has(positionRaw as PartPosition)
+    ? (positionRaw as PartPosition)
+    : null;
+  // Migração lazy: registro antigo sem `position` reaproveita o `scope` legado.
+  // Pendente sem nenhum dos dois vira "complete".
+  const position = resolvePartPosition({ position: storedPosition, scope });
   return {
     id: stringValue(value.id, fallbackId),
     partName,
@@ -1202,7 +1242,8 @@ function toPartReplacementRecord(value: FirebaseFirestore.DocumentData, fallback
     maintenanceRecordID: stringValue(value.maintenanceRecordID),
     quantity: nullableNumberValue(value.quantity),
     expectedQuantity: nullableNumberValue(value.expectedQuantity),
-    scope
+    scope,
+    position
   };
 }
 
@@ -1352,20 +1393,25 @@ function invoicePartLifeEntriesToReplacements(
   maintenanceRecordId: string,
   entries: InvoicePartLifePersistenceEntry[]
 ): Array<{ ref: FirebaseFirestore.DocumentReference; value: PartReplacementRecord }> {
-  const uniqueEntries = new Map<string, InvoicePartLifePersistenceEntry & { partName: string }>();
+  // Deduplica por (canonical name + position) — duas linhas da mesma NF
+  // podendo representar "par dianteiro" e "par traseiro" do mesmo nome.
+  const uniqueEntries = new Map<string, InvoicePartLifePersistenceEntry & { partName: string; position: PartPosition }>();
 
   for (const entry of entries) {
     const partName = partNameFromServiceLabel(entry.partName);
-    const key = partIdentityKey(partName);
-    if (!key || uniqueEntries.has(key)) continue;
+    const identityKey = domainPartIdentityKey(partName);
+    if (!identityKey) continue;
     if (!entry.lifeKm && !entry.lifeMonths) continue;
-    uniqueEntries.set(key, { ...entry, partName });
+    const position = resolvePartPosition({ position: entry.position ?? null, scope: entry.scope ?? null });
+    const groupKey = domainPartGroupKey(partName, position);
+    if (uniqueEntries.has(groupKey)) continue;
+    uniqueEntries.set(groupKey, { ...entry, partName, position });
   }
 
-  return Array.from(uniqueEntries.entries()).map(([key, entry]) => {
+  return Array.from(uniqueEntries.entries()).map(([groupKey, entry]) => {
     const replacementId = deterministicUuid(
       "invoice-part-replacement",
-      `${ownerId}:${vehicleRef.id}:${maintenanceRecordId}:${key}`.toLowerCase()
+      `${ownerId}:${vehicleRef.id}:${maintenanceRecordId}:${groupKey}`.toLowerCase()
     );
     const serviceTitle = `Troca de ${entry.partName}`;
     const value: PartReplacementRecord = {
@@ -1384,7 +1430,8 @@ function invoicePartLifeEntriesToReplacements(
       maintenanceRecordID: maintenanceRecordId,
       quantity: nullableNumberValue(entry.quantity),
       expectedQuantity: nullableNumberValue(entry.expectedQuantity),
-      scope: entry.scope ?? null
+      scope: entry.scope ?? null,
+      position: entry.position
     };
 
     return {
@@ -1400,14 +1447,6 @@ function partNameFromServiceLabel(value: unknown): string {
     .replace(/^(troca|substituicao|revisao|servico|manutencao)\s+(de|do|da|dos|das)?\s*/i, "")
     .trim();
   return partName || cleaned;
-}
-
-function partIdentityKey(value: string): string {
-  return value.normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
 }
 
 function maintenancePlanSummary(lifeKm: number | null, lifeMonths: number | null): string {

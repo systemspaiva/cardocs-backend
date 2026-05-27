@@ -161,6 +161,10 @@ function toMaintenanceContext(record: MaintenanceRecord, referenceIDValue: strin
 function toPartHealthContext(item: PartHealth) {
   return compactObject({
     name: cleanText(item.name),
+    // Quando a peça é multi-unidade, anexa a posição pra IA poder dizer
+    // "seus pneus dianteiros estão a 12%" em vez de "seus pneus estão a 12%".
+    position: item.isMultiUnit ? item.position : undefined,
+    positionLabel: item.isMultiUnit ? cleanText(item.positionLabel) : undefined,
     message: cleanText(item.message),
     percentage: item.percentage,
     replacedAt: cleanText(item.replacedAt),
@@ -182,6 +186,7 @@ function toPartReplacementContext(record: PartReplacementRecord, referenceIDValu
     mileageAtService: record.mileageAtService,
     lifeKm: record.lifeKm ?? undefined,
     lifeMonths: record.lifeMonths ?? undefined,
+    position: record.position ?? undefined,
     scheduledRevisionMileage: record.scheduledRevisionMileage ?? undefined,
     scheduledRevisionWorkshopKind: record.scheduledRevisionWorkshopKind ?? undefined
   });

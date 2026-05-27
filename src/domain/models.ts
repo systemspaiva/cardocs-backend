@@ -147,7 +147,26 @@ export interface MaintenanceRecord {
   attachment?: DocumentAttachment | null;
 }
 
+/**
+ * Legado: complete/front/rear/partial. Mantido para leitura de registros
+ * antigos no Firestore. Novos registros usam `PartPosition`.
+ */
 export type PartReplacementScope = "complete" | "front" | "rear" | "partial";
+
+/**
+ * Posição/grupo da peça multi-unidade no veículo. Cada combinação
+ * (partName + position) é um grupo independente na saúde — calcula o
+ * próprio percentual, histórico e mensagem.
+ */
+export type PartPosition =
+  | "complete"      // jogo único (todas as unidades trocadas juntas)
+  | "front_axle"    // par dianteiro
+  | "rear_axle"     // par traseiro
+  | "front_left"    // dianteiro esquerdo
+  | "front_right"   // dianteiro direito
+  | "rear_left"     // traseiro esquerdo
+  | "rear_right"    // traseiro direito
+  | "partial";      // legado / fallback
 
 export interface PartHealthHistoryEntry {
   id: string;
@@ -157,6 +176,7 @@ export interface PartHealthHistoryEntry {
   quantity?: number | null;
   expectedQuantity?: number | null;
   scope?: PartReplacementScope | null;
+  position?: PartPosition | null;
   supplierLabel?: string | null;
 }
 
@@ -171,14 +191,20 @@ export interface PartHealth {
   tone: PartHealthTone;
   lastServiceDate?: string | null;
   nextServiceDate?: string | null;
-  /** Quantas trocas dessa peça já foram registradas (histórico). */
+  /** Quantas trocas desse grupo já foram registradas (histórico). */
   replacementCount: number;
   /** Quantidade trocada na última manutenção (ex.: 2 de 4 pastilhas). */
   lastQuantity?: number | null;
   /** Quantidade total esperada pela peça (ex.: 4 pneus, 4 amortecedores). */
   expectedQuantity?: number | null;
-  /** Escopo da última troca: complete/front/rear/partial. */
+  /** Escopo legado da última troca. */
   lastScope?: PartReplacementScope | null;
+  /** Posição/grupo desta entrada (front_axle, rear_left, complete, etc.). */
+  position: PartPosition;
+  /** Indica se a peça suporta múltiplas posições/unidades no veículo. */
+  isMultiUnit: boolean;
+  /** Rótulo amigável da posição (ex.: "Par dianteiro", "Jogo completo"). */
+  positionLabel: string;
   /** Trocas anteriores em ordem cronológica decrescente. Cap em 8 entradas. */
   history: PartHealthHistoryEntry[];
 }
@@ -201,8 +227,33 @@ export interface PartReplacementRecord {
   quantity?: number | null;
   /** Quantidade total esperada pela peça (vem do catálogo IA). */
   expectedQuantity?: number | null;
-  /** complete/front/rear/partial — inferido pela IA ou informado manualmente. */
+  /** Escopo legado da troca. Migrado para `position` na leitura. */
   scope?: PartReplacementScope | null;
+  /** Posição/grupo da peça (front_axle, rear_left, complete, etc.). */
+  position: PartPosition;
+}
+
+export interface MultiUnitPartCatalogEntry {
+  /** Chave canônica usada para casar peças (ex.: "pneu", "disco freio"). */
+  id: string;
+  /** Rótulo amigável pra UI (ex.: "Pneus"). */
+  displayName: string;
+  /** Quantidade total de unidades no veículo (ex.: 4 pneus). */
+  expectedUnits: number;
+  /** Padrão de regex compilado pelo backend; serializado como string. */
+  matchPatterns: string[];
+}
+
+export interface PartPositionOption {
+  value: PartPosition;
+  label: string;
+  /** Quantas unidades cobrem (null = depende da peça, ex.: jogo completo). */
+  units: number | null;
+}
+
+export interface PartReplacementCatalog {
+  parts: MultiUnitPartCatalogEntry[];
+  positions: PartPositionOption[];
 }
 
 export interface VaultDocument {
@@ -356,6 +407,7 @@ export interface InvoicePartLifeRecommendation {
   expectedQuantity?: number | null;
   detectedQuantity?: number | null;
   scope?: PartReplacementScope | null;
+  position?: PartPosition | null;
 }
 
 export interface InvoicePartLifeEntry {
@@ -366,6 +418,7 @@ export interface InvoicePartLifeEntry {
   quantity?: number | null;
   expectedQuantity?: number | null;
   scope?: PartReplacementScope | null;
+  position?: PartPosition | null;
 }
 
 export type InvoiceDraftMissingField =

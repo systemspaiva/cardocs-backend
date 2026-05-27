@@ -5,9 +5,10 @@ import {
   InvoiceLineItem,
   InvoicePartLifeRecommendation,
   InvoiceScanDraft,
+  PartPosition,
   PartReplacementScope
 } from "../domain/models.js";
-import { deterministicUuid, roundMoney, safeMoney } from "../domain/factories.js";
+import { deterministicUuid, migrateScopeToPosition, roundMoney, safeMoney } from "../domain/factories.js";
 
 export type InvoiceExtractionExpenseKind = "vehicleService" | "partOrProduct" | "documentOrTax" | "unknown";
 
@@ -38,6 +39,7 @@ export interface PartLifeSuggestionItem {
   expectedQuantity?: number | null;
   detectedQuantity?: number | null;
   scope?: PartReplacementScope | null;
+  position?: PartPosition | null;
 }
 
 export function buildInvoiceScanDraft(
@@ -135,7 +137,8 @@ function buildPartLifeRecommendations(
       sourceDescriptions: item.sourceDescriptions.slice(0, 6),
       expectedQuantity: item.expectedQuantity ?? null,
       detectedQuantity: item.detectedQuantity ?? null,
-      scope: item.scope ?? null
+      scope: item.scope ?? null,
+      position: item.position ?? (item.scope ? migrateScopeToPosition(item.scope) : null)
     }));
 }
 

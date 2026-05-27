@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { normalizeKind } from "../../domain/factories.js";
+import { isMultiUnitPart, normalizeKind } from "../../domain/factories.js";
 
 const moneyNumberSchema = z.coerce.number().finite();
 const positiveMoneyNumberSchema = moneyNumberSchema.positive();
@@ -326,6 +326,17 @@ export const invoiceLineItemSchema = z.object({
 
 const partReplacementScopeSchema = z.enum(["complete", "front", "rear", "partial"]);
 
+const partPositionSchema = z.enum([
+  "complete",
+  "front_axle",
+  "rear_axle",
+  "front_left",
+  "front_right",
+  "rear_left",
+  "rear_right",
+  "partial"
+]);
+
 const invoicePartLifeRecommendationSchema = z.object({
   id: z.string().min(1),
   partName: z.string().trim().min(2).max(80),
@@ -336,7 +347,8 @@ const invoicePartLifeRecommendationSchema = z.object({
   sourceDescriptions: z.array(z.string().trim().min(1).max(120)).max(6).default([]),
   expectedQuantity: z.coerce.number().int().positive().max(99).nullable().optional(),
   detectedQuantity: z.coerce.number().int().positive().max(99).nullable().optional(),
-  scope: partReplacementScopeSchema.nullable().optional()
+  scope: partReplacementScopeSchema.nullable().optional(),
+  position: partPositionSchema.nullable().optional()
 }).superRefine((input, context) => {
   if (!input.lifeKm && !input.lifeMonths) {
     context.addIssue({
@@ -354,7 +366,8 @@ const invoicePartLifeEntrySchema = z.object({
   mileageAtService: z.coerce.number().int().positive().max(2_000_000),
   quantity: z.coerce.number().int().positive().max(99).nullable().optional(),
   expectedQuantity: z.coerce.number().int().positive().max(99).nullable().optional(),
-  scope: partReplacementScopeSchema.nullable().optional()
+  scope: partReplacementScopeSchema.nullable().optional(),
+  position: partPositionSchema.nullable().optional()
 }).superRefine((input, context) => {
   if (!input.lifeKm && !input.lifeMonths) {
     context.addIssue({
@@ -432,7 +445,8 @@ export const createPartReplacementSchema = z.object({
   lifeMonths: z.coerce.number().int().positive().max(240).nullable().optional(),
   quantity: z.coerce.number().int().positive().max(99).nullable().optional(),
   expectedQuantity: z.coerce.number().int().positive().max(99).nullable().optional(),
-  scope: partReplacementScopeSchema.nullable().optional()
+  scope: partReplacementScopeSchema.nullable().optional(),
+  position: partPositionSchema.nullable().optional()
 }).superRefine((input, context) => {
   if (!input.lifeKm && !input.lifeMonths) {
     context.addIssue({
@@ -457,6 +471,13 @@ export const createPartReplacementSchema = z.object({
       message: "A revisao deve seguir a agenda de 10.000 km."
     });
   }
+  if (isMultiUnitPart(input.partName) && !input.position) {
+    context.addIssue({
+      code: "custom",
+      path: ["position"],
+      message: "Selecione a posicao da peca (par dianteiro, traseiro, etc.)."
+    });
+  }
 });
 
 export const createInvoicePartReplacementSchema = z.object({
@@ -470,7 +491,8 @@ export const createInvoicePartReplacementSchema = z.object({
   lifeMonths: z.coerce.number().int().positive().max(240).nullable().optional(),
   quantity: z.coerce.number().int().positive().max(99).nullable().optional(),
   expectedQuantity: z.coerce.number().int().positive().max(99).nullable().optional(),
-  scope: partReplacementScopeSchema.nullable().optional()
+  scope: partReplacementScopeSchema.nullable().optional(),
+  position: partPositionSchema.nullable().optional()
 }).superRefine((input, context) => {
   if (!input.lifeKm && !input.lifeMonths) {
     context.addIssue({
@@ -479,11 +501,19 @@ export const createInvoicePartReplacementSchema = z.object({
       message: "Informe a vida util em km ou meses."
     });
   }
+  if (isMultiUnitPart(input.partName) && !input.position) {
+    context.addIssue({
+      code: "custom",
+      path: ["position"],
+      message: "Selecione a posicao da peca (par dianteiro, traseiro, etc.)."
+    });
+  }
 });
 
 export const removePartReplacementSchema = z.object({
   vehicleID: vehicleIDSchema,
-  partName: z.string().trim().min(2).max(80)
+  partName: z.string().trim().min(2).max(80),
+  position: partPositionSchema.nullable().optional()
 });
 
 export const partReplacementRecommendationSchema = z.object({

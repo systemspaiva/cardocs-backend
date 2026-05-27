@@ -9,6 +9,7 @@ import { CardocsIaGateway } from "../../application/cardocsIaGateway.js";
 import { SubscriptionTransactionVerifier } from "../../application/subscriptions.js";
 import {
   generateResaleDossier,
+  partReplacementCatalog,
   toManualVehicleProfile,
   toVehicleProfile
 } from "../../domain/factories.js";
@@ -274,6 +275,10 @@ export function createRouter(
       partName: body.partName,
       useProvider: canUseAi
     }));
+  }));
+
+  router.get("/v1/part-replacements/catalog", asyncHandler(async (_request: AuthenticatedRequest, response) => {
+    response.json(partReplacementCatalog());
   }));
 
   router.post("/v1/ai/chat", asyncHandler(async (request: AuthenticatedRequest, response) => {

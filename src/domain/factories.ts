@@ -1,8 +1,12 @@
 import { createHash } from "node:crypto";
 import {
   InvestmentSummary,
+  MultiUnitPartCatalogEntry,
   PartHealth,
   PartHealthHistoryEntry,
+  PartPosition,
+  PartPositionOption,
+  PartReplacementCatalog,
   PartReplacementRecord,
   PartReplacementScope,
   ResaleDossier,
@@ -157,22 +161,171 @@ export function pendingHealth(vehicle: VehicleProfile): PartHealth[] {
   ];
 }
 
+interface MultiUnitPattern {
+  id: string;
+  displayName: string;
+  expectedUnits: number;
+  patterns: RegExp[];
+}
+
+/**
+ * Peças que existem em múltiplas unidades no veículo. Quando o nome casa
+ * um padrão aqui, o formulário de adição obriga o usuário a escolher
+ * `position` (par dianteiro, traseiro esquerdo, etc.) e o cálculo de
+ * saúde isola cada grupo.
+ */
+const MULTI_UNIT_PART_PATTERNS: MultiUnitPattern[] = [
+  {
+    id: "pneu",
+    displayName: "Pneus",
+    expectedUnits: 4,
+    patterns: [/\bpneu/]
+  },
+  {
+    id: "disco-freio",
+    displayName: "Discos de freio",
+    expectedUnits: 4,
+    patterns: [/\bdisco/]
+  },
+  {
+    id: "pastilha-freio",
+    displayName: "Pastilhas de freio",
+    expectedUnits: 4,
+    patterns: [/\bpastilha/]
+  },
+  {
+    id: "amortecedor",
+    displayName: "Amortecedores",
+    expectedUnits: 4,
+    patterns: [/\bamortecedor/]
+  },
+  {
+    id: "mola",
+    displayName: "Molas",
+    expectedUnits: 4,
+    patterns: [/\bmola/]
+  }
+];
+
+export function findMultiUnitCatalogEntry(partName: string): MultiUnitPattern | null {
+  const key = partIdentityKey(partName);
+  return MULTI_UNIT_PART_PATTERNS.find((entry) =>
+    entry.patterns.some((pattern) => pattern.test(key))
+  ) ?? null;
+}
+
+export function isMultiUnitPart(partName: string): boolean {
+  return findMultiUnitCatalogEntry(partName) !== null;
+}
+
+export const POSITION_OPTIONS: PartPositionOption[] = [
+  { value: "complete", label: "Jogo completo", units: null },
+  { value: "front_axle", label: "Par dianteiro", units: 2 },
+  { value: "rear_axle", label: "Par traseiro", units: 2 },
+  { value: "front_left", label: "Dianteiro esquerdo", units: 1 },
+  { value: "front_right", label: "Dianteiro direito", units: 1 },
+  { value: "rear_left", label: "Traseiro esquerdo", units: 1 },
+  { value: "rear_right", label: "Traseiro direito", units: 1 }
+];
+
+const POSITION_LABEL = new Map<PartPosition, string>([
+  ["complete", "Jogo completo"],
+  ["front_axle", "Par dianteiro"],
+  ["rear_axle", "Par traseiro"],
+  ["front_left", "Dianteiro esquerdo"],
+  ["front_right", "Dianteiro direito"],
+  ["rear_left", "Traseiro esquerdo"],
+  ["rear_right", "Traseiro direito"],
+  ["partial", "Troca parcial"]
+]);
+
+export function positionLabel(position: PartPosition): string {
+  return POSITION_LABEL.get(position) ?? "Jogo completo";
+}
+
+/**
+ * Migra scope legado pra position. Registros antigos sem nenhuma das
+ * duas viram "complete" (jogo completo) por padrão.
+ */
+export function migrateScopeToPosition(scope: PartReplacementScope | null | undefined): PartPosition {
+  if (!scope) return "complete";
+  if (scope === "front") return "front_axle";
+  if (scope === "rear") return "rear_axle";
+  if (scope === "partial") return "partial";
+  return "complete";
+}
+
+/**
+ * Resolve a `position` efetiva de um replacement, priorizando o campo novo
+ * mas caindo no `scope` legado pra registros antigos no Firestore.
+ */
+export function resolvePartPosition(record: {
+  position?: PartPosition | null;
+  scope?: PartReplacementScope | null;
+}): PartPosition {
+  if (record.position) return record.position;
+  return migrateScopeToPosition(record.scope ?? null);
+}
+
+/**
+ * Identidade de um grupo monitorado: nome canônico da peça + posição.
+ * Determina como `calculatePartHealth` agrupa registros e como o iOS
+ * exibe linhas separadas pra cada grupo de saúde.
+ */
+export function partGroupKey(partName: string, position: PartPosition): string {
+  return `${partIdentityKey(partName)}:${position}`;
+}
+
+export function partReplacementCatalog(): PartReplacementCatalog {
+  const parts: MultiUnitPartCatalogEntry[] = MULTI_UNIT_PART_PATTERNS.map((entry) => ({
+    id: entry.id,
+    displayName: entry.displayName,
+    expectedUnits: entry.expectedUnits,
+    matchPatterns: entry.patterns.map((pattern) => pattern.source)
+  }));
+  return { parts, positions: POSITION_OPTIONS };
+}
+
 export function calculatePartHealth(vehicle: VehicleProfile, replacements: PartReplacementRecord[]): PartHealth[] {
   if (replacements.length === 0) {
     return pendingHealth(vehicle);
   }
 
-  // Agrupa por canonical name pra calcular history + latest sem duplicar.
-  const groupedByPart = new Map<string, PartReplacementRecord[]>();
+  // Agrupa por (canonical name + position) — cada grupo vira um PartHealth
+  // independente, com cálculo isolado de % e histórico.
+  const groupedByGroup = new Map<string, PartReplacementRecord[]>();
+  // Index reverso: quais positions específicas existem por canonical name.
+  // Usado pra suprimir o grupo "complete" legado quando o usuário já tem
+  // entradas mais específicas (front_axle, rear_left, etc.) — evita o
+  // "item fantasma vencido" causado pela migração de registros antigos.
+  const specificPositionsByPart = new Map<string, Set<PartPosition>>();
   for (const replacement of replacements) {
-    const key = partIdentityKey(replacement.partName);
-    const bucket = groupedByPart.get(key) ?? [];
+    const position = resolvePartPosition(replacement);
+    const identity = partIdentityKey(replacement.partName);
+    const key = `${identity}:${position}`;
+    const bucket = groupedByGroup.get(key) ?? [];
     bucket.push(replacement);
-    groupedByPart.set(key, bucket);
+    groupedByGroup.set(key, bucket);
+
+    if (position !== "complete" && position !== "partial") {
+      const set = specificPositionsByPart.get(identity) ?? new Set<PartPosition>();
+      set.add(position);
+      specificPositionsByPart.set(identity, set);
+    }
   }
 
-  return Array.from(groupedByPart.values())
-    .map((group) => {
+  return Array.from(groupedByGroup.entries())
+    .filter(([key]) => {
+      // Se uma peça tem positions específicas (front_axle, rear_left, etc.),
+      // não exibir o grupo "complete" — ele representa registro legado que
+      // foi refinado por entradas mais específicas. O histórico continua
+      // no timeline; só some da tela de saúde.
+      const [identity, position] = key.split(":");
+      if (position !== "complete") return true;
+      const specifics = specificPositionsByPart.get(identity);
+      return !specifics || specifics.size === 0;
+    })
+    .map(([, group]) => {
       const sorted = [...group].sort((a, b) => (isReplacementNewer(a, b) ? -1 : 1));
       const latest = sorted[0];
       return toPartHealth(vehicle, latest, sorted);
@@ -189,7 +342,7 @@ export function iconNameForPartName(value: string): string {
   if (/pneu|tire|roda/.test(normalized)) return "circle.dotted";
   if (/freio|brake|pastilha|disco/.test(normalized)) return "record.circle";
   if (/bateria|battery/.test(normalized)) return "bolt.fill";
-  if (/suspens|amortecedor/.test(normalized)) return "car.side";
+  if (/suspens|amortecedor|mola/.test(normalized)) return "car.side";
   if (/correia|belt/.test(normalized)) return "link";
   if (/vela|ignicao/.test(normalized)) return "sparkplug";
   return "wrench.adjustable";
@@ -197,7 +350,10 @@ export function iconNameForPartName(value: string): string {
 
 export function generateResaleDossier(
   vehicle: VehicleProfile,
-  garage: Pick<VehicleGarage, "timeline" | "vaultDocuments"> & { insurance?: VehicleInsurance | null },
+  garage: Pick<VehicleGarage, "timeline" | "vaultDocuments"> & {
+    insurance?: VehicleInsurance | null;
+    partReplacements?: PartReplacementRecord[];
+  },
   publicReportBaseURL = "https://cardocs-backend-5qq5b33fha-rj.a.run.app"
 ): ResaleDossier {
   const hasHistory = garage.timeline.length > 0 || garage.vaultDocuments.length > 0;
@@ -207,6 +363,31 @@ export function generateResaleDossier(
   const documentCount = garage.vaultDocuments.length;
   const estimatedIncrease = hasHistory ? roundMoney(maintenanceTotal * 0.2) : 0;
   const score = hasHistory ? Math.min(96, Math.max(50, 50 + garage.timeline.length * 8 + documentCount * 10 + (hasInsurance ? 8 : 0))) : 42;
+  // Saúde por grupo (position): se houver partReplacements, calcula PartHealth
+  // e seleciona os críticos (≤35%) pra destacar no dossiê. Comprador potencial
+  // vê "Pastilhas traseiras a 12%" em vez de só "Pastilhas".
+  const healthItems = garage.partReplacements
+    ? calculatePartHealth(vehicle, garage.partReplacements)
+    : [];
+  const criticalHealthItems = healthItems
+    .filter((item) => item.tone === "warning" && item.percentage <= 35)
+    .sort((a, b) => a.percentage - b.percentage);
+  const partsHealthDetail = healthItems.length === 0
+    ? "Sem trocas registradas — adicione manutenções para gerar a saúde de peças."
+    : criticalHealthItems.length === 0
+      ? `${healthItems.length} ${healthItems.length === 1 ? "grupo monitorado" : "grupos monitorados"} dentro do plano.`
+      : criticalHealthItems
+          .slice(0, 4)
+          .map((item) => {
+            const positionSuffix = item.isMultiUnit ? ` (${item.positionLabel.toLowerCase()})` : "";
+            return `${item.name}${positionSuffix} ${item.percentage}%`;
+          })
+          .join(" · ");
+  const partsHealthStatus = healthItems.length === 0
+    ? "Pendente"
+    : criticalHealthItems.length === 0
+      ? "Em dia"
+      : `${criticalHealthItems.length} ${criticalHealthItems.length === 1 ? "grupo" : "grupos"} em atenção`;
 
   return {
     title: hasHistory ? "Dossie Tá Revisado" : "Dossie em preparo",
@@ -281,6 +462,13 @@ export function generateResaleDossier(
         detail: hasInsurance ?
           `${garage.insurance!.insurerName} ate ${garage.insurance!.validUntil}.` :
           "Adicione seguradora, coberturas, franquias e validade para completar o dossie."
+      },
+      {
+        id: deterministicUuid("resale-section", `${slug}:parts-health`),
+        iconName: "gauge.with.dots.needle.50percent",
+        title: "Saude de pecas monitoradas",
+        status: partsHealthStatus,
+        detail: partsHealthDetail
       }
     ]
   };
@@ -329,6 +517,9 @@ function partHealth(vehicle: VehicleProfile, key: string, iconName: string, name
     lastQuantity: null,
     expectedQuantity: null,
     lastScope: null,
+    position: "complete",
+    isMultiUnit: isMultiUnitPart(name),
+    positionLabel: positionLabel("complete"),
     history: []
   };
 }
@@ -352,6 +543,10 @@ function toPartHealth(vehicle: VehicleProfile, replacement: PartReplacementRecor
     dueDate === null ? null : formatMaintenanceDate(dueDate)
   ].filter((value): value is string => Boolean(value));
 
+  const position = resolvePartPosition(replacement);
+  const multiUnit = isMultiUnitPart(replacement.partName);
+  const positionDescription = positionLabel(position);
+
   const history: PartHealthHistoryEntry[] = group.slice(0, maximumHistoryEntries).map((entry) => ({
     id: deterministicUuid("part-health-history", `${vehicle.id}:${entry.id}`),
     serviceDate: entry.serviceDate,
@@ -360,14 +555,23 @@ function toPartHealth(vehicle: VehicleProfile, replacement: PartReplacementRecor
     quantity: entry.quantity ?? null,
     expectedQuantity: entry.expectedQuantity ?? null,
     scope: entry.scope ?? null,
+    position: resolvePartPosition(entry),
     supplierLabel: null
   }));
 
   return {
-    id: deterministicUuid("part-health", `${vehicle.id}:${partIdentityKey(replacement.partName)}`),
+    id: deterministicUuid("part-health", `${vehicle.id}:${partGroupKey(replacement.partName, position)}`),
     iconName: replacement.iconName || iconNameForPartName(replacement.partName),
     name: replacement.partName,
-    message: replacementStatusMessage(percentage, kmRemaining, dayRemaining, replacement.scope ?? null, replacement.quantity ?? null, replacement.expectedQuantity ?? null),
+    message: replacementStatusMessage(
+      percentage,
+      kmRemaining,
+      dayRemaining,
+      position,
+      multiUnit,
+      replacement.quantity ?? null,
+      replacement.expectedQuantity ?? null
+    ),
     percentage,
     replacedAt: `${formatMileage(replacement.mileageAtService)} km`,
     limit: limitParts.join(" / ") || "Nao informado",
@@ -378,6 +582,9 @@ function toPartHealth(vehicle: VehicleProfile, replacement: PartReplacementRecor
     lastQuantity: replacement.quantity ?? null,
     expectedQuantity: replacement.expectedQuantity ?? null,
     lastScope: replacement.scope ?? null,
+    position,
+    isMultiUnit: multiUnit,
+    positionLabel: positionDescription,
     history
   };
 }
@@ -386,13 +593,14 @@ function replacementStatusMessage(
   percentage: number,
   kmRemaining: number | null,
   dayRemaining: number | null,
-  scope: PartReplacementScope | null,
+  position: PartPosition,
+  isMultiUnit: boolean,
   quantity: number | null,
   expectedQuantity: number | null
 ): string {
   const baseMessage = baseReplacementStatusMessage(percentage, kmRemaining, dayRemaining);
-  const scopeNote = describeScope(scope, quantity, expectedQuantity);
-  return scopeNote ? `${baseMessage} · ${scopeNote}` : baseMessage;
+  const positionNote = describePosition(position, isMultiUnit, quantity, expectedQuantity);
+  return positionNote ? `${baseMessage} · ${positionNote}` : baseMessage;
 }
 
 function baseReplacementStatusMessage(percentage: number, kmRemaining: number | null, dayRemaining: number | null): string {
@@ -403,20 +611,23 @@ function baseReplacementStatusMessage(percentage: number, kmRemaining: number | 
   return "Dentro do plano";
 }
 
-function describeScope(scope: PartReplacementScope | null, quantity: number | null, expectedQuantity: number | null): string | null {
-  if (!scope || scope === "complete") {
-    if (quantity && expectedQuantity && quantity < expectedQuantity) {
-      return `${quantity} de ${expectedQuantity} trocadas`;
-    }
-    return null;
-  }
-  if (scope === "front") return "só dianteiras";
-  if (scope === "rear") return "só traseiras";
-  if (scope === "partial") {
+function describePosition(
+  position: PartPosition,
+  isMultiUnit: boolean,
+  quantity: number | null,
+  expectedQuantity: number | null
+): string | null {
+  if (position === "partial") {
     if (quantity && expectedQuantity) return `${quantity} de ${expectedQuantity} trocadas`;
     return "troca parcial";
   }
-  return null;
+  if (position === "complete") {
+    if (isMultiUnit && quantity && expectedQuantity && quantity < expectedQuantity) {
+      return `${quantity} de ${expectedQuantity} trocadas`;
+    }
+    return isMultiUnit ? "jogo completo" : null;
+  }
+  return positionLabel(position).toLowerCase();
 }
 
 function normalizePartKey(value: string): string {
@@ -428,7 +639,7 @@ function normalizePartKey(value: string): string {
     .toLowerCase();
 }
 
-function partIdentityKey(value: string): string {
+export function partIdentityKey(value: string): string {
   const stripped = stripServicePrefix(normalizePartKey(value));
   const semantic = stripAxleScope(stripFillerWords(singularize(stripped)));
   return semantic || stripped || normalizePartKey(value);
