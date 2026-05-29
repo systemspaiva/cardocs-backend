@@ -2,7 +2,8 @@ import {
   InvoiceDocumentInput,
   InvoiceExpenseKind,
   InvoiceScanDraft,
-  PartReplacementScope
+  PartReplacementScope,
+  VehicleGarage
 } from "../domain/models.js";
 
 export interface PartReplacementRecommendationRequest {
@@ -84,6 +85,36 @@ export interface AutomotiveChatResponse {
   scope: AutomotiveChatScope;
 }
 
+export type ResaleDossierGenerationTrigger = "manual" | "mileage_updated" | "part_replaced";
+
+export interface ResaleDossierGenerationInput {
+  garage: VehicleGarage;
+  trigger: ResaleDossierGenerationTrigger;
+}
+
+export interface ResaleDossierAiHighlight {
+  iconName: string;
+  title: string;
+  value: string;
+}
+
+export interface ResaleDossierAiSection {
+  iconName: string;
+  title: string;
+  status: string;
+  detail: string;
+}
+
+export interface ResaleDossierAiResponse {
+  title: string;
+  summary: string;
+  score: number;
+  estimatedValueIncrease: number;
+  highlights: ResaleDossierAiHighlight[];
+  checks: string[];
+  reportSections: ResaleDossierAiSection[];
+}
+
 export type AutomotiveChatStreamEvent =
   | { type: "delta"; text: string }
   | { type: "reference"; reference: AutomotiveChatReference }
@@ -97,5 +128,6 @@ export interface CardocsIaGateway {
   analyzeInvoice(input: InvoiceDocumentInput): Promise<InvoiceScanDraft>;
   recommendPartReplacement(input: PartReplacementRecommendationRequest): Promise<PartReplacementRecommendation>;
   suggestPartLife(input: PartLifeSuggestionRequest): Promise<PartLifeSuggestionResponse>;
+  generateResaleDossier(input: ResaleDossierGenerationInput): Promise<ResaleDossierAiResponse>;
   streamAutomotiveChat(input: AutomotiveChatRequest, options?: AutomotiveChatStreamOptions): AsyncIterable<AutomotiveChatStreamEvent>;
 }

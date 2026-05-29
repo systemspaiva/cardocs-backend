@@ -8,14 +8,16 @@ import { PushNotificationService } from "../../application/pushNotifications.js"
 import { CardocsIaGateway } from "../../application/cardocsIaGateway.js";
 import { SubscriptionTransactionVerifier } from "../../application/subscriptions.js";
 import {
-  generateResaleDossier,
+  deterministicUuid,
   partReplacementCatalog,
+  publicReportSlug,
   toManualVehicleProfile,
   toVehicleProfile
 } from "../../domain/factories.js";
 import {
   InvoiceDocumentInput,
   ResaleDossier,
+  VehicleGarage,
   VaultDocumentKind
 } from "../../domain/models.js";
 import { VehicleImageLookupUseCase, VehicleImageProvider } from "../../application/vehicleImageLookup.js";
@@ -174,6 +176,7 @@ export function createRouter(
     const body = updateMileageSchema.parse(request.body);
     const ownerId = requireOwnerId(request);
     const updated = await repository.updateMileage(ownerId, body.vehicleID, body.mileage);
+    enqueueResaleDossierRefresh(repository, cardocsIa, ownerId, body.vehicleID, "mileage_updated");
     response.json(updated);
   }));
 
@@ -244,27 +247,41 @@ export function createRouter(
       serviceDate: body.draft.date
     }));
 
-    response.status(201).json(await repository.saveAutomationResult(
-      requireOwnerId(request),
+    const ownerId = requireOwnerId(request);
+    const dashboard = await repository.saveAutomationResult(
+      ownerId,
       body.vehicleID,
       result,
       partLifeEntries
-    ));
+    );
+    if (partLifeEntries.length > 0) {
+      enqueueResaleDossierRefresh(repository, cardocsIa, ownerId, body.vehicleID, "part_replaced");
+    }
+    response.status(201).json(dashboard);
   }));
 
   router.post("/v1/part-replacements", asyncHandler(async (request: AuthenticatedRequest, response) => {
     const body = createPartReplacementSchema.parse(request.body);
-    response.status(201).json(await repository.savePartReplacement(requireOwnerId(request), body));
+    const ownerId = requireOwnerId(request);
+    await repository.savePartReplacement(ownerId, body);
+    enqueueResaleDossierRefresh(repository, cardocsIa, ownerId, body.vehicleID, "part_replaced");
+    response.status(201).json(await repository.loadDashboard(ownerId));
   }));
 
   router.post("/v1/part-replacements/from-invoice", asyncHandler(async (request: AuthenticatedRequest, response) => {
     const body = createInvoicePartReplacementSchema.parse(request.body);
-    response.status(201).json(await repository.saveInvoicePartReplacement(requireOwnerId(request), body));
+    const ownerId = requireOwnerId(request);
+    await repository.saveInvoicePartReplacement(ownerId, body);
+    enqueueResaleDossierRefresh(repository, cardocsIa, ownerId, body.vehicleID, "part_replaced");
+    response.status(201).json(await repository.loadDashboard(ownerId));
   }));
 
   router.post("/v1/part-replacements/remove", asyncHandler(async (request: AuthenticatedRequest, response) => {
     const body = removePartReplacementSchema.parse(request.body);
-    response.json(await repository.removePartReplacement(requireOwnerId(request), body));
+    const ownerId = requireOwnerId(request);
+    const dashboard = await repository.removePartReplacement(ownerId, body);
+    enqueueResaleDossierRefresh(repository, cardocsIa, ownerId, body.vehicleID, "part_replaced");
+    response.json(dashboard);
   }));
 
   router.post("/v1/part-replacements/recommendation", asyncHandler(async (request: AuthenticatedRequest, response) => {
@@ -370,9 +387,12 @@ export function createRouter(
 
   router.post("/v1/resale-dossiers", asyncHandler(async (request: AuthenticatedRequest, response) => {
     const body = resaleDossierRequestSchema.parse(request.body);
-    const garage = await repository.findGarage(requireOwnerId(request), body.vehicleID);
-    const dossier = generateResaleDossier(garage.vehicle, garage);
-    response.json(await repository.upsertResaleDossier(requireOwnerId(request), body.vehicleID, dossier));
+    const ownerId = requireOwnerId(request);
+    const dossier = await refreshResaleDossierWithAi(repository, requireCardocsIa(cardocsIa), ownerId, body.vehicleID, "manual", { failOnError: true });
+    if (!dossier) {
+      throw new ProviderNotConfiguredError("Backend de IA ainda nao configurado.");
+    }
+    response.json(dossier);
   }));
 
   router.post("/v1/vehicle-transfers", asyncHandler(async (request: AuthenticatedRequest, response) => {
@@ -480,6 +500,78 @@ function requireCardocsIa(cardocsIa: CardocsIaGateway | null): CardocsIaGateway 
     throw new ProviderNotConfiguredError("Backend de IA ainda nao configurado.");
   }
   return cardocsIa;
+}
+
+function enqueueResaleDossierRefresh(
+  repository: FirebaseGarageRepository,
+  cardocsIa: CardocsIaGateway | null,
+  ownerId: string,
+  vehicleId: string,
+  trigger: "mileage_updated" | "part_replaced"
+): void {
+  void refreshResaleDossierWithAi(repository, cardocsIa, ownerId, vehicleId, trigger);
+}
+
+async function refreshResaleDossierWithAi(
+  repository: FirebaseGarageRepository,
+  cardocsIa: CardocsIaGateway | null,
+  ownerId: string,
+  vehicleId: string,
+  trigger: "manual" | "mileage_updated" | "part_replaced",
+  options: { failOnError?: boolean } = {}
+): Promise<ResaleDossier | null> {
+  if (!cardocsIa) return null;
+
+  try {
+    const garage = await repository.findGarage(ownerId, vehicleId);
+    const aiDossier = await cardocsIa.generateResaleDossier({ garage, trigger });
+    const dossier = toAiResaleDossier(garage, aiDossier);
+    return await repository.upsertResaleDossier(ownerId, vehicleId, dossier);
+  } catch (error) {
+    if (options.failOnError) throw error;
+    console.warn(JSON.stringify({
+      severity: "WARNING",
+      message: "resale_dossier_ai_refresh_failed",
+      trigger,
+      errorName: error instanceof Error ? error.name : "unknown"
+    }));
+    return null;
+  }
+}
+
+function toAiResaleDossier(
+  garage: VehicleGarage,
+  aiDossier: Awaited<ReturnType<CardocsIaGateway["generateResaleDossier"]>>
+): ResaleDossier {
+  const publicReportURL = garage.resaleDossier.publicReportURL ||
+    `https://cardocs-backend-5qq5b33fha-rj.a.run.app/r/${publicReportSlug(garage.vehicle)}`;
+  const seed = `${garage.id}:${garage.vehicle.id}:${aiDossier.title}:${aiDossier.estimatedValueIncrease}`;
+
+  return {
+    title: aiDossier.title,
+    summary: aiDossier.summary,
+    score: clampInteger(aiDossier.score, 0, 100),
+    estimatedValueIncrease: Math.round(aiDossier.estimatedValueIncrease),
+    publicReportURL,
+    highlights: aiDossier.highlights.slice(0, 6).map((highlight, index) => ({
+      id: deterministicUuid("resale-highlight-ai", `${seed}:${index}:${highlight.title}`),
+      iconName: highlight.iconName,
+      title: highlight.title,
+      value: highlight.value
+    })),
+    checks: aiDossier.checks.slice(0, 8),
+    reportSections: aiDossier.reportSections.slice(0, 8).map((section, index) => ({
+      id: deterministicUuid("resale-section-ai", `${seed}:${index}:${section.title}`),
+      iconName: section.iconName,
+      title: section.title,
+      status: section.status,
+      detail: section.detail
+    }))
+  };
+}
+
+function clampInteger(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, Math.round(value)));
 }
 
 function writeSseHeaders(response: Response): void {
