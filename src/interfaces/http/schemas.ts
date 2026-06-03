@@ -190,6 +190,10 @@ export const updateMileageSchema = z.object({
   mileage: z.number().int().min(0)
 });
 
+export const deleteVehicleSchema = z.object({
+  vehicleID: vehicleIDSchema
+});
+
 export const updateVehiclePhotoSchema = z.object({
   vehicleID: vehicleIDSchema,
   mimeType: z.enum(["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"]),

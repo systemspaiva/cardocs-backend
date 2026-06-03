@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto";
 import { FieldValue, Firestore, Timestamp } from "firebase-admin/firestore";
+import { getStorage } from "firebase-admin/storage";
 import {
   AutomationResult,
   InvoiceLineItem,
@@ -93,6 +94,21 @@ export class FirebaseGarageRepository {
       );
     });
     return vehicle;
+  }
+
+  async deleteVehicle(ownerId: string, vehicleId: string): Promise<VehicleDashboard> {
+    const vehicleRef = await this.resolveVehicleRef(ownerId, vehicleId);
+    const snapshot = await this.assertVehicleExists(vehicleRef);
+    const garage = await this.loadGarageFromVehicleDoc(ownerId, vehicleRef.id, snapshot.data() ?? {});
+
+    await Promise.all([
+      this.deleteVehicleTransferArtifacts(ownerId, vehicleRef.id),
+      deletePublicReports(this.db, [publicReportSlug(garage.vehicle)]),
+      deleteVehicleStorageAssets(ownerId, garage),
+      this.db.recursiveDelete(vehicleRef)
+    ]);
+
+    return this.loadDashboard(ownerId);
   }
 
   async updateMileage(ownerId: string, vehicleId: string, mileage: number): Promise<VehicleProfile> {
@@ -704,17 +720,17 @@ export class FirebaseGarageRepository {
 
   async upsertResaleDossier(ownerId: string, vehicleId: string, dossier: ResaleDossier): Promise<ResaleDossier> {
     const vehicleRef = await this.resolveVehicleRef(ownerId, vehicleId);
-    const vehicleDoc = await vehicleRef.get();
-    if (!vehicleDoc.exists) {
-      throw new NotFoundError("Veiculo nao encontrado.");
-    }
+    await this.db.runTransaction(async (transaction) => {
+      const vehicleDoc = await transaction.get(vehicleRef);
+      if (!vehicleDoc.exists) {
+        throw new NotFoundError("Veiculo nao encontrado.");
+      }
 
-    const vehicle = toVehicleProfile(vehicleDoc.data()?.vehicle, vehicleDoc.id, { idOverride: vehicleDoc.id });
-    const slug = publicReportSlug(vehicle);
-    await Promise.all([
-      vehicleRef.collection("dossiers").doc("current").set(withTimestamps(dossier, false), { merge: true }),
-      this.db.collection("publicReports").doc(slug).set(withTimestamps(dossier, false), { merge: true })
-    ]);
+      const vehicle = toVehicleProfile(vehicleDoc.data()?.vehicle, vehicleDoc.id, { idOverride: vehicleDoc.id });
+      const slug = publicReportSlug(vehicle);
+      transaction.set(vehicleRef.collection("dossiers").doc("current"), withTimestamps(dossier, false), { merge: true });
+      transaction.set(this.db.collection("publicReports").doc(slug), withTimestamps(dossier, false), { merge: true });
+    });
     return dossier;
   }
 
@@ -957,6 +973,52 @@ export class FirebaseGarageRepository {
     return this.db.collection("users").doc(ownerId).collection("vehicles").doc(vehicleId);
   }
 
+  private async deleteVehicleTransferArtifacts(ownerId: string, vehicleId: string): Promise<void> {
+    const outgoingTransfers = this.db
+      .collection("users")
+      .doc(ownerId)
+      .collection("outgoingVehicleTransfers");
+    const [transferSnapshot, directDoc] = await Promise.all([
+      outgoingTransfers.where("vehicleID", "==", vehicleId).get(),
+      outgoingTransfers.doc(vehicleId).get()
+    ]);
+
+    const refsToDelete = new Map<string, FirebaseFirestore.DocumentReference>();
+    const incomingPendingRefs = new Map<string, FirebaseFirestore.DocumentReference>();
+    const collectDeletionTargets = (doc: FirebaseFirestore.QueryDocumentSnapshot | FirebaseFirestore.DocumentSnapshot) => {
+      if (!doc.exists) {
+        return;
+      }
+
+      refsToDelete.set(doc.ref.path, doc.ref);
+      const data = doc.data() ?? {};
+      if (data.status !== "pending") {
+        return;
+      }
+
+      const toOwnerId = nullableStringValue(data.toOwnerID);
+      const transferId = nullableStringValue(data.transferID);
+      if (!toOwnerId || !transferId) {
+        return;
+      }
+
+      const incomingRef = this.incomingVehicleTransferRef(toOwnerId, transferId);
+      incomingPendingRefs.set(incomingRef.path, incomingRef);
+    };
+
+    transferSnapshot.docs.forEach(collectDeletionTargets);
+    collectDeletionTargets(directDoc);
+
+    if (refsToDelete.size === 0 && incomingPendingRefs.size === 0) {
+      return;
+    }
+
+    const batch = this.db.batch();
+    refsToDelete.forEach((ref) => batch.delete(ref));
+    incomingPendingRefs.forEach((ref) => batch.delete(ref));
+    await batch.commit();
+  }
+
   private async assertVehicleExists(
     vehicleRef: FirebaseFirestore.DocumentReference
   ): Promise<FirebaseFirestore.DocumentSnapshot> {
@@ -1019,7 +1081,6 @@ async function uploadVehiclePhoto(
   photo: { mimeType: string; base64Data: string },
   fileName: string
 ): Promise<VehicleImage> {
-  const { getStorage } = await import("firebase-admin/storage");
   const buffer = Buffer.from(photo.base64Data, "base64");
   const storagePath = `users/${ownerId}/vehicles/${vehicleId}/${fileName}`;
 
@@ -1041,6 +1102,115 @@ async function uploadVehiclePhoto(
 
 function imageExtension(mimeType: string): string {
   return mimeType.split("/")[1]?.replace("jpeg", "jpg") ?? "jpg";
+}
+
+async function deleteVehicleStorageAssets(ownerId: string, garage: VehicleGarage): Promise<void> {
+  const bucket = getStorage().bucket();
+  const storagePaths = collectVehicleStoragePaths(garage, bucket.name);
+
+  await Promise.all(storagePaths.map(async (storagePath) => {
+    try {
+      await bucket.file(storagePath).delete();
+    } catch (error) {
+      if (!isStorageNotFoundError(error)) {
+        throw error;
+      }
+    }
+  }));
+
+  await Promise.all(currentVehicleStoragePrefixes(ownerId, garage.id).map(async (prefix) => {
+    await bucket.deleteFiles({ prefix, force: true });
+  }));
+}
+
+async function deletePublicReports(db: Firestore, publicReportIds: string[]): Promise<void> {
+  const uniqueIds = [...new Set(publicReportIds.filter(Boolean))];
+  for (let index = 0; index < uniqueIds.length; index += 450) {
+    const chunk = uniqueIds.slice(index, index + 450);
+    if (chunk.length === 0) {
+      continue;
+    }
+
+    const batch = db.batch();
+    chunk.forEach((reportId) => batch.delete(db.collection("publicReports").doc(reportId)));
+    await batch.commit();
+  }
+}
+
+function sanitizePathSegment(value: string): string {
+  return value.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 96) || "unknown";
+}
+
+function currentVehicleStoragePrefixes(ownerId: string, vehicleId: string): string[] {
+  return [...new Set([
+    `users/${ownerId}/vehicles/${vehicleId}/`,
+    `users/${sanitizePathSegment(ownerId)}/vehicles/${sanitizePathSegment(vehicleId)}/`
+  ])];
+}
+
+function collectVehicleStoragePaths(garage: VehicleGarage, bucketName: string): string[] {
+  const storagePaths = new Set<string>();
+
+  collectVehicleImageStoragePaths(storagePaths, garage.vehicle.image, bucketName);
+  garage.vehicle.photos.forEach((photo) => collectVehicleImageStoragePaths(storagePaths, photo, bucketName));
+  garage.vaultDocuments.forEach((document) => {
+    const storagePath = document.attachment?.storagePath?.trim();
+    if (storagePath) {
+      storagePaths.add(storagePath);
+    }
+  });
+
+  return [...storagePaths];
+}
+
+function collectVehicleImageStoragePaths(
+  storagePaths: Set<string>,
+  image: VehicleImage | null | undefined,
+  bucketName: string
+): void {
+  if (!image) {
+    return;
+  }
+
+  [image.url, image.thumbnailUrl].forEach((candidate) => {
+    const storagePath = extractStoragePathFromURL(candidate, bucketName);
+    if (storagePath) {
+      storagePaths.add(storagePath);
+    }
+  });
+}
+
+function extractStoragePathFromURL(value: string | null | undefined, bucketName: string): string | null {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    const url = new URL(value);
+    if (url.hostname === "storage.googleapis.com") {
+      const [bucket, ...pathParts] = url.pathname.replace(/^\/+/, "").split("/");
+      if (bucket !== bucketName || pathParts.length === 0) {
+        return null;
+      }
+      return decodeURIComponent(pathParts.join("/"));
+    }
+
+    if (url.hostname === "firebasestorage.googleapis.com") {
+      const match = url.pathname.match(/^\/v0\/b\/([^/]+)\/o\/(.+)$/);
+      if (!match || decodeURIComponent(match[1]) !== bucketName) {
+        return null;
+      }
+      return decodeURIComponent(match[2]);
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function isStorageNotFoundError(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && (error as { code?: number }).code === 404;
 }
 
 function toVehiclePhotos(data: Partial<VehicleProfile> | undefined, fallbackImage: VehicleImage | null): VehicleImage[] {

@@ -30,6 +30,7 @@ import {
   createInvoicePartReplacementSchema,
   createPartReplacementSchema,
   createVehicleInsuranceSchema,
+  deleteVehicleSchema,
   createVehicleDocumentSchema,
   invoiceDocumentInputSchema,
   partReplacementRecommendationSchema,
@@ -170,6 +171,13 @@ export function createRouter(
     const ownerId = requireOwnerId(request);
     const vehicle = toManualVehicleProfile(ownerId, body);
     response.status(201).json(await repository.saveVehicle(ownerId, vehicle));
+  }));
+
+  router.delete("/v1/vehicles/:vehicleID", asyncHandler(async (request: AuthenticatedRequest, response) => {
+    const body = deleteVehicleSchema.parse({
+      vehicleID: request.params.vehicleID
+    });
+    response.json(await repository.deleteVehicle(requireOwnerId(request), body.vehicleID));
   }));
 
   router.post("/v1/vehicles/mileage", asyncHandler(async (request: AuthenticatedRequest, response) => {
