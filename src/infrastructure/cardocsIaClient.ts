@@ -8,7 +8,9 @@ import {
   PartLifeSuggestionRequest,
   PartLifeSuggestionResponse,
   PartReplacementRecommendation,
-  PartReplacementRecommendationRequest
+  PartReplacementRecommendationRequest,
+  ResaleDossierAiResponse,
+  ResaleDossierGenerationInput
 } from "../application/cardocsIaGateway.js";
 import { buildInvoiceScanDraft, InvoiceExtraction } from "../application/invoiceDraftBuilder.js";
 import {
@@ -100,6 +102,10 @@ export class CardocsIaClient implements CardocsIaGateway {
 
   async suggestPartLife(input: PartLifeSuggestionRequest): Promise<PartLifeSuggestionResponse> {
     return this.post("/internal/v1/parts/life-suggestions", input);
+  }
+
+  async generateResaleDossier(input: ResaleDossierGenerationInput): Promise<ResaleDossierAiResponse> {
+    return this.post("/internal/v1/resale-dossiers/generate", sanitizeResaleDossierGenerationInput(input));
   }
 
   async *streamAutomotiveChat(
@@ -253,6 +259,78 @@ export class CardocsIaClient implements CardocsIaGateway {
     }
     return this.idTokenClientPromise;
   }
+}
+
+function sanitizeResaleDossierGenerationInput(input: ResaleDossierGenerationInput) {
+  const garage = input.garage;
+  const vehicle = garage.vehicle;
+  return {
+    trigger: input.trigger,
+    vehicle: {
+      kind: vehicle.kind,
+      brand: vehicle.brand,
+      model: vehicle.model,
+      year: vehicle.year,
+      color: vehicle.color,
+      mileage: vehicle.mileage,
+      statusTags: vehicle.statusTags,
+      fipe: vehicle.fipe,
+      details: vehicle.details ? {
+        fuel: vehicle.details.fuel,
+        engineDisplacement: vehicle.details.engineDisplacement,
+        vehicleType: vehicle.details.vehicleType,
+        segment: vehicle.details.segment,
+        subSegment: vehicle.details.subSegment,
+        bodyType: vehicle.details.bodyType,
+        origin: vehicle.details.origin
+      } : null
+    },
+    garage: {
+      investment: garage.investment,
+      timeline: garage.timeline.slice(0, 80).map((record) => ({
+        date: record.date,
+        amount: record.amount,
+        isAIValidated: record.isAIValidated,
+        serviceTitle: record.serviceTitle ?? null,
+        expenseKind: record.expenseKind ?? null
+      })),
+      vaultDocuments: garage.vaultDocuments.slice(0, 80).map((document) => ({
+        date: document.date,
+        amount: document.amount,
+        status: document.status,
+        kind: document.kind ?? null,
+        checklistKind: document.checklistKind ?? null,
+        documentType: document.documentType ?? null,
+        serviceTitle: document.serviceTitle ?? null,
+        expenseKind: document.expenseKind ?? null,
+        lineItems: (document.lineItems ?? []).slice(0, 50).map((item) => ({
+          quantity: item.quantity ?? null,
+          unitAmount: item.unitAmount ?? null,
+          totalAmount: item.totalAmount
+        }))
+      })),
+      insurance: garage.insurance ? {
+        premiumAmount: garage.insurance.premiumAmount,
+        premiumPeriod: garage.insurance.premiumPeriod,
+        deductibleAmount: garage.insurance.deductibleAmount ?? null,
+        validUntil: garage.insurance.validUntil
+      } : null,
+      partReplacements: garage.partReplacements.slice(0, 120).map((replacement) => ({
+        partName: replacement.partName,
+        brandName: replacement.brandName ?? null,
+        serviceDate: replacement.serviceDate,
+        amount: replacement.amount,
+        mileageAtService: replacement.mileageAtService,
+        lifeKm: replacement.lifeKm ?? null,
+        lifeMonths: replacement.lifeMonths ?? null,
+        scheduledRevisionMileage: replacement.scheduledRevisionMileage ?? null,
+        scheduledRevisionWorkshopKind: replacement.scheduledRevisionWorkshopKind ?? null,
+        quantity: replacement.quantity ?? null,
+        expectedQuantity: replacement.expectedQuantity ?? null,
+        position: replacement.position ?? null
+      }))
+    }
+  };
 }
 
 function isLocalURL(value: string): boolean {
