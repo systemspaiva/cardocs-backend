@@ -1,12 +1,12 @@
 # Tá Revisado Node Backend
 
-Backend Node.js/Express para o app iOS Tá Revisado, publicado diretamente no Cloud Run. Não usa Firebase Functions nem Firebase Hosting como entrada do backend.
+Backend Node.js/Express para os apps iOS e Android do Tá Revisado, publicado diretamente no Cloud Run. Não usa Firebase Functions nem Firebase Hosting como entrada do backend.
 
 ## Stack Atual
 
 - Cloud Run como única entrada HTTPS pública do backend (`https://cardocs-backend-5qq5b33fha-rj.a.run.app`).
 - `cardocs-ia` como backend interno privado para execução de IA.
-- Firebase Auth para autenticação do app iOS.
+- Firebase Auth para autenticação dos apps móveis.
 - Firestore como banco de dados operacional.
 
 O backend legado Spring/Kotlin foi removido deste projeto para evitar dois caminhos concorrentes de runtime e deploy.
@@ -44,6 +44,10 @@ Rotas principais:
 ```http
 GET  /v1/health
 GET  /v1/dashboard
+GET  /v1/subscription/status
+POST /v1/subscription/sync
+POST /v1/subscription/google-play/sync
+DELETE /v1/subscription
 POST /v1/vehicles/plate-lookup
 POST /v1/vehicles/image
 POST /v1/vehicles
@@ -69,6 +73,24 @@ O app iOS prepara imagem/PDF e envia o documento para `/v1/invoices/analyze`. O 
 `invoices/analyze` continua disponível como rota pública de compatibilidade para o app iOS. A execução de IA, prompts, schemas de extração e classificação de `vehicleService`, `partOrProduct` ou `unknown` ficam no `cardocs-ia`.
 
 `POST /v1/invoices` recebe `vehicleID` e o `draft` estruturado pela análise do backend. O backend valida o schema do draft, gera o `AutomationResult` no servidor e só então persiste o histórico/cofre no Firestore.
+
+### Assinaturas Google Play
+
+O Android envia somente `packageName`, `productId` e `purchaseToken` autenticados para `POST /v1/subscription/google-play/sync`. O backend consulta `purchases.subscriptionsv2.get`, confere pacote, produto, plano-base, validade, estado da assinatura e o vínculo da conta antes de conceder acesso. O token bruto não é persistido: apenas seu SHA-256 e metadados não secretos ficam no Firestore. Compras pendentes, pausadas, em espera ou expiradas revogam apenas o entitlement Google Play que tenha o mesmo hash; uma compra inválida não pode apagar outra assinatura. Entitlements da App Store e do Google Play são mantidos separadamente, enquanto o contrato de status continua expondo a assinatura com maior validade para preservar compatibilidade.
+
+O app deve iniciar o Billing Flow com `setObfuscatedAccountId(sha256(firebaseUid))`, em hexadecimal minúsculo. Depois de persistir o entitlement, o backend confirma compras ainda pendentes com `purchases.subscriptions.acknowledge`. Repetições do mesmo sync são idempotentes, inclusive quando duas confirmações concorrem.
+
+Configuração não secreta do catálogo:
+
+```bash
+export CARDOCS_ANDROID_PACKAGE_NAME="com.luhenpa.cardocs"
+export CARDOCS_GOOGLE_PLAY_MONTHLY_PRODUCT_ID="tarevisado_premium"
+export CARDOCS_GOOGLE_PLAY_MONTHLY_BASE_PLAN_ID="monthly"
+export CARDOCS_GOOGLE_PLAY_ANNUAL_PRODUCT_ID="tarevisado_premium"
+export CARDOCS_GOOGLE_PLAY_ANNUAL_BASE_PLAN_ID="annual"
+```
+
+Esse é também o contrato que o futuro `BillingClient` Android deve consultar: um produto de assinatura `tarevisado_premium`, com os planos-base `monthly` e `annual`. As credenciais são obtidas por Application Default Credentials. A service account do Cloud Run precisa estar vinculada no Play Console e ter permissão para visualizar pedidos/assinaturas e gerenciar pedidos para confirmar compras. Não versione uma chave JSON. Para revogação imediata sem depender da próxima abertura do app, ainda é necessário configurar Real-time Developer Notifications (RTDN) em trabalho separado.
 
 ## Firestore
 

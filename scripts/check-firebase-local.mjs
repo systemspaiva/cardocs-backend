@@ -66,6 +66,14 @@ report("FIRESTORE_RULES_DENY_CLIENT_ACCESS", /allow\s+read,\s*write:\s*if\s+fals
 
 const packageJson = json("package.json");
 const deployScript = read("scripts/deploy-cloud-run.sh");
+const deployReadiness = read("scripts/check-firebase-deploy-readiness.mjs");
+const googlePlayEnvironmentNames = [
+  "CARDOCS_ANDROID_PACKAGE_NAME",
+  "CARDOCS_GOOGLE_PLAY_MONTHLY_PRODUCT_ID",
+  "CARDOCS_GOOGLE_PLAY_MONTHLY_BASE_PLAN_ID",
+  "CARDOCS_GOOGLE_PLAY_ANNUAL_PRODUCT_ID",
+  "CARDOCS_GOOGLE_PLAY_ANNUAL_BASE_PLAN_ID"
+];
 report("NODE_BUILD_SCRIPT", packageJson?.scripts?.build === "tsc");
 report("NODE_START_SCRIPT", packageJson?.scripts?.start === "node lib/index.js");
 report("NODE_CLOUD_RUN_DEPLOY_SCRIPT", packageJson?.scripts?.["deploy:run"] === "sh scripts/deploy-cloud-run.sh" && deployScript.includes("CARDOCS_IA_BASE_URL"));
@@ -77,6 +85,7 @@ report("NODE_NO_LOCAL_GENKIT_DEPENDENCY", !packageJson?.dependencies?.["@genkit-
 report("NODE_CARDOCS_IA_AUTH_DEPENDENCY", Boolean(packageJson?.dependencies?.["google-auth-library"]));
 report("NODE_REMOTE_READINESS_SCRIPT", Boolean(packageJson?.scripts?.["check:firebase-readiness"]));
 report("NODE_REMOTE_DEPLOY_READINESS_SCRIPT", Boolean(packageJson?.scripts?.["check:firebase-deploy-readiness"]));
+report("NODE_GOOGLE_PLAY_ENV_DEPLOYED_AND_CHECKED", googlePlayEnvironmentNames.every((name) => deployScript.includes(name) && deployReadiness.includes(name)) && deployScript.includes("tarevisado_premium") && deployScript.includes("monthly") && deployScript.includes("annual"));
 report("NODE_SENSITIVE_FILE_CHECK_SCRIPT", Boolean(packageJson?.scripts?.["check:no-sensitive-files"]));
 
 const server = read("src/index.ts");
@@ -87,7 +96,10 @@ const routes = read("src/interfaces/http/routes.ts");
 const schemas = read("src/interfaces/http/schemas.ts");
 const domainModels = read("src/domain/models.ts");
 const repository = read("src/infrastructure/firebaseGarageRepository.ts");
+const userRepository = read("src/infrastructure/firebaseUserRepository.ts");
 const appStoreVerifier = read("src/infrastructure/appStoreSubscriptionVerifier.ts");
+const googlePlayVerifier = read("src/infrastructure/googlePlaySubscriptionVerifier.ts");
+const subscriptions = read("src/application/subscriptions.ts");
 const plateProvider = read("src/infrastructure/apiplacasVehicleDataProvider.ts");
 const invoiceUseCase = read("src/application/invoiceAnalysis.ts");
 const invoiceDraftBuilder = read("src/application/invoiceDraftBuilder.ts");
@@ -143,8 +155,13 @@ report("API_PART_REPLACEMENT_ROUTE", routes.includes("router.post(\"/v1/part-rep
 report("API_PART_REPLACEMENT_RECOMMENDATION_ROUTE", routes.includes("router.post(\"/v1/part-replacements/recommendation\"") && routes.includes("hasPartRecommendationAiAccess") && routes.includes("useProvider: canUseAi") && schemas.includes("partReplacementRecommendationSchema") && cardocsIaClient.includes("recommendPartReplacement"));
 report("API_SUBSCRIPTION_STATUS_ROUTE", routes.includes("router.get(\"/v1/subscription/status\"") && routes.includes("router.post(\"/v1/subscription/sync\"") && schemas.includes("syncSubscriptionSchema"));
 report("API_SUBSCRIPTION_APP_STORE_JWS_VERIFICATION", appStoreVerifier.includes("SignedDataVerifier") && appStoreVerifier.includes("verifyAndDecodeTransaction") && routes.includes("subscriptionVerifier.verify(body.signedTransactionInfo)") && !routes.includes("expiresAt: body.expiresAt"));
-report("API_SUBSCRIPTION_MIGRATES_BY_ORIGINAL_TRANSACTION", !routes.includes("appAccountTokenForOwnerId(ownerId)") && read("src/infrastructure/firebaseUserRepository.ts").includes("subscription.originalTransactionId\", \"==\", subscription.originalTransactionId") && read("src/infrastructure/firebaseUserRepository.ts").includes("FieldValue.delete()"));
-report("API_SUBSCRIPTION_FREE_DAYS_PRIORITY", read("src/infrastructure/firebaseUserRepository.ts").includes("freeDaysUntil") && read("src/infrastructure/firebaseUserRepository.ts").indexOf("reason: \"freeDays\"") < read("src/infrastructure/firebaseUserRepository.ts").indexOf("reason: \"subscription\""));
+report("API_SUBSCRIPTION_MIGRATES_BY_TRANSACTION_LINEAGE", !routes.includes("appAccountTokenForOwnerId(ownerId)") && userRepository.includes("matchingTransactions") && userRepository.includes("matchingOriginalTransactions") && userRepository.includes("matchingStoreLineages") && userRepository.includes("matchingHistorySupersededTokens") && userRepository.includes("array-contains-any") && userRepository.includes("FieldValue.delete()"));
+report("API_SUBSCRIPTION_GOOGLE_PLAY_ROUTE", routes.includes("router.post(\"/v1/subscription/google-play/sync\"") && schemas.includes("syncGooglePlaySubscriptionSchema") && server.includes("GooglePlaySubscriptionVerifier.fromEnvironment()"));
+report("API_SUBSCRIPTION_GOOGLE_PLAY_SERVER_VERIFICATION", googlePlayVerifier.includes("purchases/subscriptionsv2/tokens/") && googlePlayVerifier.includes("obfuscatedExternalAccountId") && googlePlayVerifier.includes("basePlanId") && googlePlayVerifier.includes("ACKNOWLEDGEMENT_STATE_PENDING"));
+report("API_SUBSCRIPTION_GOOGLE_PLAY_GRANT_BEFORE_ACK", subscriptions.indexOf("store.syncSubscription(") < subscriptions.indexOf("verifier.acknowledge(") && subscriptions.includes("clearGooglePlaySubscription"));
+report("API_SUBSCRIPTION_GOOGLE_PLAY_RACE_GUARD", subscriptions.includes("beginGooglePlaySubscriptionSync") && userRepository.includes("hasNewerGooglePlayAttempt") && userRepository.includes("supersededPurchaseTokenHashes") && userRepository.includes("subscriptionHistory"));
+report("API_SUBSCRIPTION_GOOGLE_PLAY_TOKEN_NOT_PERSISTED", userRepository.includes("verification: canonicalMetadata") && !userRepository.includes("purchaseToken:"));
+report("API_SUBSCRIPTION_FREE_DAYS_PRIORITY", userRepository.includes("freeDaysUntil") && userRepository.indexOf("reason: \"freeDays\"") < userRepository.indexOf("reason: \"subscription\""));
 report("API_INVOICE_SCAN_REQUIRES_ACCESS", routes.includes("ensureInvoiceScanAccess(userRepository, requireOwnerId(request))") && routes.includes("body.draft.source !== \"manualEntry\" || body.sourceDocument?.document"));
 report(
   "API_INVOICE_SAVE_PERSISTS_AUTOMATION_RESULT",
