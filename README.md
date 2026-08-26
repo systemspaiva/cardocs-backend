@@ -161,7 +161,9 @@ Auditoria remota de prontidao do deploy Cloud Run:
 GOOGLE_APPLICATION_CREDENTIALS="/caminho/local/para/service-account.json" npm run check:firebase-deploy-readiness
 ```
 
-Essa checagem valida se o `GoogleService-Info.plist` do app iOS e a configuracao remota do Firebase ja possuem OAuth Google, Apple e Email/senha habilitados.
+Esse preflight valida credenciais, APIs obrigatorias, servico Cloud Run e a revisao que recebe 100% do trafego. Ele nao exige que as cinco variaveis Google Play ja existam na revisao antiga, permitindo o primeiro rollout dessa configuracao.
+
+A auditoria de Firebase/Auth acima valida se o `GoogleService-Info.plist` do app iOS e a configuracao remota do Firebase ja possuem OAuth Google, Apple e Email/senha habilitados.
 
 Estado esperado para considerar Auth pronto:
 
@@ -198,9 +200,28 @@ Quando o deploy for autorizado, o fluxo esperado exige confirmação explícita 
 ```bash
 export FIREBASE_PROJECT_ID="cardocs-app"
 export CARDOCS_ALLOW_DEPLOY=1
+export CARDOCS_ALLOW_TRAFFIC_PROMOTION=1
 export CARDOCS_DEPLOY_TARGET=develop
 export CARDOCS_IA_BASE_URL="https://cardocs-ia-....a.run.app"
 npm run deploy:run
+```
+
+O script cria uma revisao candidata sem trafego, valida `Ready`, as cinco variaveis Google Play, `/v1/health` e a resposta `401` para token invalido. Somente depois promove a revisao para 100%. Qualquer falha mantem ou restaura a revisao que recebia 100% antes do rollout; nenhum smoke de compra e executado.
+
+Depois do rollout, confirme a revisao efetiva, o trafego, as variaveis e os dois smokes publicos:
+
+```bash
+export CARDOCS_EXPECTED_REVISION="cardocs-backend-00000-abc"
+GOOGLE_APPLICATION_CREDENTIALS="/caminho/local/para/service-account.json" npm run check:cloud-run-post-deploy
+```
+
+Rollback manual seguro usa a revisao capturada no inicio do rollout:
+
+```bash
+gcloud run services update-traffic cardocs-backend \
+  --to-revisions "REVISAO_ANTERIOR=100" \
+  --region southamerica-east1 \
+  --project cardocs-app
 ```
 
 Deploy deve seguir o Git Flow definido no projeto. Não faça merge na `main` nem deploy para produção sem autorização explícita.
