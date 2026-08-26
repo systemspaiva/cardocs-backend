@@ -6,7 +6,12 @@ import { DeleteAccountUseCase } from "../../application/accountDeletion.js";
 import { buildAutomotiveChatContext, sanitizeAutomotiveChatMessages } from "../../application/automotiveChatContext.js";
 import { PushNotificationService } from "../../application/pushNotifications.js";
 import { CardocsIaGateway } from "../../application/cardocsIaGateway.js";
-import { SubscriptionTransactionVerifier } from "../../application/subscriptions.js";
+import {
+  GooglePlayPurchaseVerifier,
+  GooglePlaySubscriptionSyncService,
+  SubscriptionTransactionVerifier,
+  appStoreSubscriptionMetadata
+} from "../../application/subscriptions.js";
 import {
   deterministicUuid,
   partReplacementCatalog,
@@ -40,6 +45,7 @@ import {
   removePartReplacementSchema,
   resaleDossierRequestSchema,
   saveInvoiceSchema,
+  syncGooglePlaySubscriptionSchema,
   syncSubscriptionSchema,
   syncUserProfileSchema,
   updateMaintenanceRecordSchema,
@@ -71,12 +77,16 @@ export function createRouter(
   cardocsIa: CardocsIaGateway | null = null,
   documentAttachmentStore: DocumentAttachmentStore | null = null,
   pushNotifications: PushNotificationService | null = null,
-  subscriptionVerifier: SubscriptionTransactionVerifier | null = null
+  subscriptionVerifier: SubscriptionTransactionVerifier | null = null,
+  googlePlaySubscriptionVerifier: GooglePlayPurchaseVerifier | null = null
 ): Router {
   const router = Router();
   const plateLookup = new VehiclePlateLookupUseCase(vehiclePlateProvider);
   const imageLookup = new VehicleImageLookupUseCase(vehicleImageProvider);
   const invoiceAnalysis = new InvoiceAnalysisUseCase();
+  const googlePlaySubscriptions = googlePlaySubscriptionVerifier
+    ? new GooglePlaySubscriptionSyncService(googlePlaySubscriptionVerifier, userRepository)
+    : null;
 
   router.get("/v1/health", (_request, response) => {
     response.json({ status: "UP", runtime: "node" });
@@ -133,8 +143,18 @@ export function createRouter(
     const ownerId = requireOwnerId(request);
     await userRepository.syncSubscription(
       ownerId,
-      await subscriptionVerifier.verify(body.signedTransactionInfo)
+      await subscriptionVerifier.verify(body.signedTransactionInfo),
+      appStoreSubscriptionMetadata
     );
+    response.status(204).send();
+  }));
+
+  router.post("/v1/subscription/google-play/sync", asyncHandler(async (request: AuthenticatedRequest, response) => {
+    const body = syncGooglePlaySubscriptionSchema.parse(request.body);
+    if (!googlePlaySubscriptions) {
+      throw new ProviderNotConfiguredError("Validador de assinatura Google Play nao configurado.");
+    }
+    await googlePlaySubscriptions.sync(body, requireOwnerId(request));
     response.status(204).send();
   }));
 

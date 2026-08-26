@@ -107,6 +107,19 @@ export const syncSubscriptionSchema = z
   })
   .strict();
 
+export const syncGooglePlaySubscriptionSchema = z
+  .object({
+    packageName: z
+      .string()
+      .trim()
+      .min(3)
+      .max(255)
+      .regex(/^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+$/),
+    productId: z.string().trim().min(1).max(255),
+    purchaseToken: z.string().trim().min(16).max(4096)
+  })
+  .strict();
+
 export const syncUserProfileSchema = z
   .object({
     legalAcceptance: z

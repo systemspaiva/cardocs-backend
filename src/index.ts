@@ -14,6 +14,7 @@ import { FirebaseStorageDocumentAttachmentStore } from "./infrastructure/firebas
 import { FirebaseUserRepository } from "./infrastructure/firebaseUserRepository.js";
 import { CardocsIaClient } from "./infrastructure/cardocsIaClient.js";
 import { AppStoreSubscriptionVerifier } from "./infrastructure/appStoreSubscriptionVerifier.js";
+import { GooglePlaySubscriptionVerifier } from "./infrastructure/googlePlaySubscriptionVerifier.js";
 import { DeleteAccountUseCase } from "./application/accountDeletion.js";
 import { PushNotificationService } from "./application/pushNotifications.js";
 import { createRouter } from "./interfaces/http/routes.js";
@@ -32,6 +33,7 @@ const vehicleImageProvider = CarsXeVehicleImageProvider.fromEnvironment();
 const cardocsIaClient = CardocsIaClient.fromEnvironment();
 const documentAttachmentStore = FirebaseStorageDocumentAttachmentStore.fromDefaultBucket();
 const subscriptionVerifier = AppStoreSubscriptionVerifier.fromEnvironment();
+const googlePlaySubscriptionVerifier = GooglePlaySubscriptionVerifier.fromEnvironment();
 const pushNotifications = new PushNotificationService(
   new FirebasePushDeviceTokenStore(firestore),
   new FirebaseCloudMessagingPushSender()
@@ -48,7 +50,8 @@ app.use(createRouter(
   cardocsIaClient,
   documentAttachmentStore,
   pushNotifications,
-  subscriptionVerifier
+  subscriptionVerifier,
+  googlePlaySubscriptionVerifier
 ));
 app.use(errorHandler);
 
