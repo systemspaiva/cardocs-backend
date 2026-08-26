@@ -8,6 +8,7 @@
   },
   "scripts": {
     "build": "tsc",
+    "test": "npm run build && node --test tests/*.test.mjs",
     "start": "node lib/index.js",
     "serve": "npm run build && node lib/index.js",
     "deploy:run": "sh scripts/deploy-cloud-run.sh",

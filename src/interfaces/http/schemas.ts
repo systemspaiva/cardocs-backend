@@ -114,7 +114,7 @@ export const syncUserProfileSchema = z
         termsVersion: legalDocumentVersionSchema,
         privacyVersion: legalDocumentVersionSchema,
         acceptedAt: isoDateStringSchema,
-        source: z.enum(["ios"])
+        source: z.enum(["ios", "android"])
       })
       .optional()
   })
@@ -568,7 +568,7 @@ export const vehicleTransferResponseSchema = z.object({
 
 export const pushDeviceTokenRegistrationSchema = z.object({
   token: pushDeviceTokenSchema,
-  platform: z.enum(["ios"])
+  platform: z.enum(["ios", "android"])
 });
 
 export const pushDeviceTokenRemovalSchema = z.object({

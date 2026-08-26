@@ -55,7 +55,7 @@ export class FirebasePushDeviceTokenStore implements PushDeviceTokenStore {
   async listTokens(ownerId: string): Promise<StoredPushDeviceToken[]> {
     const snapshot = await this.tokenCollection(ownerId).get();
     return snapshot.docs
-      .map((doc) => toStoredToken(doc.id, doc.data()))
+      .map((doc) => decodeStoredPushDeviceToken(doc.id, doc.data()))
       .filter((token): token is StoredPushDeviceToken => token !== null);
   }
 
@@ -79,11 +79,14 @@ export class FirebasePushDeviceTokenStore implements PushDeviceTokenStore {
   }
 }
 
-function toStoredToken(id: string, value: FirebaseFirestore.DocumentData): StoredPushDeviceToken | null {
+export function decodeStoredPushDeviceToken(
+  id: string,
+  value: FirebaseFirestore.DocumentData
+): StoredPushDeviceToken | null {
   if (typeof value.token !== "string" || value.token.trim().length === 0) {
     return null;
   }
-  if (value.platform !== "ios") {
+  if (value.platform !== "ios" && value.platform !== "android") {
     return null;
   }
   return {
