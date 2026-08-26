@@ -1,6 +1,6 @@
 import { VehicleTransferRequest } from "../domain/models.js";
 
-export type PushDevicePlatform = "ios";
+export type PushDevicePlatform = "ios" | "android";
 
 export interface PushDeviceTokenRegistration {
   token: string;

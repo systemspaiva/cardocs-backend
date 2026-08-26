@@ -32,7 +32,7 @@ export interface LegalAcceptance {
   termsVersion: string;
   privacyVersion: string;
   acceptedAt: string;
-  source: "ios";
+  source: "ios" | "android";
 }
 
 export type SubscriptionPlan = "monthly" | "annual";
