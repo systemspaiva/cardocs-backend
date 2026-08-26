@@ -15,6 +15,7 @@
     "check:firebase-local": "node scripts/check-firebase-local.mjs",
     "check:firebase-readiness": "node scripts/check-firebase-readiness.mjs",
     "check:firebase-deploy-readiness": "node scripts/check-firebase-deploy-readiness.mjs",
+    "check:cloud-run-post-deploy": "node scripts/check-cloud-run-post-deploy.mjs",
     "check:no-sensitive-files": "node scripts/check-no-sensitive-files.mjs",
     "configure:firebase-auth": "node scripts/configure-firebase-auth.mjs",
     "verify:server": "sh scripts/verify-node-server.sh",

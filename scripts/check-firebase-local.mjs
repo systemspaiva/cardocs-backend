@@ -67,6 +67,8 @@ report("FIRESTORE_RULES_DENY_CLIENT_ACCESS", /allow\s+read,\s*write:\s*if\s+fals
 const packageJson = json("package.json");
 const deployScript = read("scripts/deploy-cloud-run.sh");
 const deployReadiness = read("scripts/check-firebase-deploy-readiness.mjs");
+const postDeployReadiness = read("scripts/check-cloud-run-post-deploy.mjs");
+const rolloutContract = read("scripts/cloud-run-rollout-contract.mjs");
 const googlePlayEnvironmentNames = [
   "CARDOCS_ANDROID_PACKAGE_NAME",
   "CARDOCS_GOOGLE_PLAY_MONTHLY_PRODUCT_ID",
@@ -85,7 +87,18 @@ report("NODE_NO_LOCAL_GENKIT_DEPENDENCY", !packageJson?.dependencies?.["@genkit-
 report("NODE_CARDOCS_IA_AUTH_DEPENDENCY", Boolean(packageJson?.dependencies?.["google-auth-library"]));
 report("NODE_REMOTE_READINESS_SCRIPT", Boolean(packageJson?.scripts?.["check:firebase-readiness"]));
 report("NODE_REMOTE_DEPLOY_READINESS_SCRIPT", Boolean(packageJson?.scripts?.["check:firebase-deploy-readiness"]));
-report("NODE_GOOGLE_PLAY_ENV_DEPLOYED_AND_CHECKED", googlePlayEnvironmentNames.every((name) => deployScript.includes(name) && deployReadiness.includes(name)) && deployScript.includes("tarevisado_premium") && deployScript.includes("monthly") && deployScript.includes("annual"));
+report(
+  "NODE_GOOGLE_PLAY_ENV_DEPLOYED_AND_CHECKED",
+  packageJson?.scripts?.["check:cloud-run-post-deploy"] ===
+    "node scripts/check-cloud-run-post-deploy.mjs" &&
+    postDeployReadiness.includes("assertPostDeployService") &&
+    googlePlayEnvironmentNames.every((name) =>
+      deployScript.includes(name) && rolloutContract.includes(name)
+    ) &&
+    deployScript.includes("tarevisado_premium") &&
+    deployScript.includes("monthly") &&
+    deployScript.includes("annual")
+);
 report("NODE_SENSITIVE_FILE_CHECK_SCRIPT", Boolean(packageJson?.scripts?.["check:no-sensitive-files"]));
 
 const server = read("src/index.ts");
