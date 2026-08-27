@@ -68,6 +68,44 @@ interface AuthenticatedRequest extends Request {
   authToken?: DecodedIdToken;
 }
 
+export interface FirebaseIdTokenVerifier {
+  verifyIdToken(idToken: string, checkRevoked?: boolean): Promise<DecodedIdToken>;
+}
+
+const unauthorizedFirebaseIdTokenErrorCodes = new Set([
+  "auth/argument-error",
+  "auth/id-token-expired",
+  "auth/id-token-revoked",
+  "auth/invalid-id-token",
+  "auth/user-disabled",
+  "auth/user-not-found"
+]);
+const firebaseIdTokenShape = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
+
+export async function verifyAuthenticatedFirebaseIdToken(
+  idToken: string,
+  verifier: FirebaseIdTokenVerifier = getAuth()
+): Promise<DecodedIdToken> {
+  if (!firebaseIdTokenShape.test(idToken)) {
+    throw new UnauthorizedError("Firebase ID token invalido, expirado ou revogado.");
+  }
+  try {
+    return await verifier.verifyIdToken(idToken, true);
+  } catch (error) {
+    if (!isUnauthorizedFirebaseIdTokenError(error)) {
+      throw error;
+    }
+    throw new UnauthorizedError("Firebase ID token invalido, expirado ou revogado.");
+  }
+}
+
+function isUnauthorizedFirebaseIdTokenError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null || !("code" in error)) {
+    return false;
+  }
+  return unauthorizedFirebaseIdTokenErrorCodes.has(String(error.code));
+}
+
 export function createRouter(
   repository: FirebaseGarageRepository,
   userRepository: FirebaseUserRepository,
@@ -497,12 +535,7 @@ async function authenticateFirebaseToken(request: AuthenticatedRequest, _respons
     throw new UnauthorizedError();
   }
 
-  let decodedToken: DecodedIdToken;
-  try {
-    decodedToken = await getAuth().verifyIdToken(match[1]);
-  } catch {
-    throw new UnauthorizedError("Firebase ID token invalido ou expirado.");
-  }
+  const decodedToken = await verifyAuthenticatedFirebaseIdToken(match[1]);
 
   request.ownerId = decodedToken.uid;
   request.authToken = decodedToken;
